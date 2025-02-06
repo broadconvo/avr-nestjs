@@ -20,13 +20,9 @@ jobs:
 
       - name: 🚀 Deploy to Server
         run: |
-          ssh -q \
-              -o LogLevel=ERROR \
-              -o UserKnownHostsFile=/dev/null \
-              -o StrictHostKeyChecking=no \ 
-              ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
-                sudo chown -R ${{ secrets.SERVER_USERNAME }}:${{ secrets.SERVER_USERNAME }} ${{ secrets.APP_PATH }}
-                cd ${{ secrets.APP_PATH }}
-                git config --global --add safe.directory ${{ secrets.APP_PATH }}
-                git pull origin main
-              EOF
+          ssh -q -o LogLevel=ERROR -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
+            sudo chown -R ${{ secrets.SERVER_USERNAME }}:${{ secrets.SERVER_USERNAME }} ${{ secrets.APP_PATH }}
+            cd ${{ secrets.APP_PATH }}
+            git config --global --add safe.directory ${{ secrets.APP_PATH }}
+            git pull origin main
+          EOF
