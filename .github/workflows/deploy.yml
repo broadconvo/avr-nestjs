@@ -22,5 +22,6 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
             cd ${{ secrets.APP_PATH }}
+            git config --global --add safe.directory ${{ secrets.APP_PATH }}
             git pull origin main
           EOF
