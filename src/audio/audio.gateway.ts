@@ -1,19 +1,31 @@
 import {
   WebSocketGateway,
   WebSocketServer,
-  SubscribeMessage,
-  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Server } from 'ws';
+import { Server, WebSocket } from 'ws';
+import { AudioService } from './audio.service';
 
-@WebSocketGateway({ path: '/audio-stream' })
-export class AudioGateway {
+@WebSocketGateway(8080)
+export class AudioGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  constructor(private audioService: AudioService) {}
+
   @WebSocketServer()
   server: Server;
 
-  @SubscribeMessage('audio')
-  handleAudio(@MessageBody() data: Buffer) {
-    console.log('Received audio chunk:', data.toString());
-    // Process, store, or forward the audio data
+  handleConnection(client: WebSocket) {
+    console.log('Client connected');
+    client.on('message', (data: Buffer) => {
+      this.handleAudioStream(client, data);
+    });
+  }
+
+  handleDisconnect(client: WebSocket) {
+    console.log('Client disconnected');
+  }
+
+  handleAudioStream(client: WebSocket, data: Buffer) {
+    this.audioService.processAudio(data);
   }
 }

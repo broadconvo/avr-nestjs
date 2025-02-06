@@ -23,8 +23,12 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-socket.io": "^11.0.8",
     "@nestjs/websockets": "^11.0.8",
+    "@types/ari-client": "^2.2.13",
     "ari-client": "^2.2.0",
+    "asterisk-manager": "^0.2.0",
+    "dotenv": "^16.4.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "ws": "^8.18.0"
