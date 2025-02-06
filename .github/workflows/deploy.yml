@@ -23,6 +23,4 @@ jobs:
           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
             cd ${{ secrets.APP_PATH }}
             git pull origin main
-            npm install
-            pm2 restart app  # Replace with your actual process
           EOF
