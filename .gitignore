@@ -89,4 +89,4 @@ typings/
 .idea
 .DS_store
 .env
-/dist
+dist
