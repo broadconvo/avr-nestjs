@@ -19,7 +19,6 @@ let AudioService = AudioService_1 = class AudioService {
         this.audioBuffer = [];
     }
     onModuleInit() {
-        this.connectToAsterisk();
     }
     connectToAsterisk() {
         this.logger.log('Connecting to Asterisk AudioSocket ...');

@@ -11,7 +11,7 @@ export class AudioService implements OnModuleInit {
   private audioBuffer: Buffer[] = [];
 
   onModuleInit() {
-    this.connectToAsterisk();
+    //this.connectToAsterisk();
   }
 
   private connectToAsterisk() {

@@ -8,13 +8,13 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AudioModule = void 0;
 const common_1 = require("@nestjs/common");
-const audio_service_1 = require("./audio.service");
+const audio_gateway_1 = require("./audio.gateway");
 let AudioModule = class AudioModule {
 };
 exports.AudioModule = AudioModule;
 exports.AudioModule = AudioModule = __decorate([
     (0, common_1.Module)({
-        providers: [audio_service_1.AudioService],
+        providers: [audio_gateway_1.AudioGateway],
     })
 ], AudioModule);
 //# sourceMappingURL=audio.module.js.map
