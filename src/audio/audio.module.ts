@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AudioGateway } from './audio.gateway';
+import { AudioSocketService } from './audio.service';
 
 @Module({
-  providers: [AudioGateway],
+  providers: [AudioSocketService],
 })
 export class AudioModule {}

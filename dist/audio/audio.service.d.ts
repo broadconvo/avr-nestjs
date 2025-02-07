@@ -1,10 +1,13 @@
 import { OnModuleInit } from '@nestjs/common';
-export declare class AudioService implements OnModuleInit {
+import { Socket } from 'net';
+export declare class AudioSocketService implements OnModuleInit {
     private readonly logger;
-    private readonly AUDIO_HOST;
-    private readonly AUDIO_PORT;
-    private audioBuffer;
+    private server;
+    private connections;
+    private readonly port;
     onModuleInit(): void;
-    private connectToAsterisk;
-    private processAudioBuffer;
+    private startServer;
+    private handleData;
+    sendUuid(connection: Socket): void;
+    sendData(connectionId: string, data: Buffer): void;
 }

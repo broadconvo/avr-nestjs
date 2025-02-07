@@ -1,67 +1,94 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import * as net from 'net';
-import axios from 'axios';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
-export class AudioService implements OnModuleInit {
-  private readonly logger = new Logger(AudioService.name);
-  private readonly AUDIO_HOST = process.env.AUDIO_HOST!;
-  private readonly AUDIO_PORT = Number(process.env.AUDIO_PORT!);
-
-  private audioBuffer: Buffer[] = [];
+export class AudioSocketService implements OnModuleInit {
+  private readonly logger = new Logger(AudioSocketService.name);
+  private server: Server;
+  private connections: Map<string, Socket> = new Map(); // Store connections by UUID
+  private readonly port = 9093; // TCP Port
 
   onModuleInit() {
-    //this.connectToAsterisk();
+    this.startServer();
   }
 
-  private connectToAsterisk() {
-    this.logger.log('Connecting to Asterisk AudioSocket ...');
-    const client = new net.Socket();
+  private startServer() {
+    this.server = new Server((socket) => {
+      const connectionId = uuidv4(); // Generate a UUID for the connection
+      this.logger.log(`Client connected: ${connectionId}`);
+      this.connections.set(connectionId, socket);
 
-    client.connect(this.AUDIO_PORT, this.AUDIO_HOST, () => {
-      this.logger.log(
-        `Connected to Asterisk AudioSocket on ${this.AUDIO_HOST}:${this.AUDIO_PORT}`,
-      );
+      // Handle data from the client
+      socket.on('data', (data) => {
+        this.handleData(connectionId, data, socket);
+      });
+
+      // Handle client disconnection
+      socket.on('end', () => {
+        this.logger.log(`Client disconnected: ${connectionId}`);
+        this.connections.delete(connectionId);
+      });
+
+      socket.on('error', (err) => {
+        this.logger.error(`Socket error: ${err.message}`, err.stack);
+        this.connections.delete(connectionId);
+        socket.destroy();
+      });
+      this.sendUuid(socket);
     });
 
-    client.on('data', (data) => {
-      this.logger.log(`Received ${data.length} bytes of audio`);
-      this.audioBuffer.push(data);
+    this.server.listen(this.port, () => {
+      this.logger.log(`AudioSocket server listening on port ${this.port}`);
     });
 
-    client.on('close', () => {
-      this.logger.warn('AudioSocket connection closed');
+    this.server.on('error', (err) => {
+      this.logger.error(`Server error: ${err.message}`, err.stack);
     });
-
-    client.on('error', (err) => {
-      this.logger.error('AudioSocket error:', err);
-    });
-
-    // Periodically process and send buffered audio to OpenAI
-    // setInterval(() => this.processAudioBuffer(), 3000); // Send every 3 seconds
   }
 
-  private async processAudioBuffer() {
-    if (this.audioBuffer.length === 0) return;
+  private handleData(connectionId: string, data: Buffer, socket: Socket) {
+    // Process the audio data here
+    this.logger.debug(
+      `Received data from ${connectionId}: ${data.length} bytes`,
+    );
+    // Example: Echo the data back to the client (for testing)
+    //socket.write(data);
 
-    const audioData = Buffer.concat(this.audioBuffer);
-    this.audioBuffer = []; // Clear the buffer
+    //TODO: Implement your audio processing logic here
+    // - Volume calculation
+    // - Speech detection
+    // - Send to Deepgram
+    // - Receive TTS
+    // - Stream back to Asterisk
+  }
 
-    try {
-      const response = await axios.post(
-        'https://api.openai.com/v1/audio/transcriptions',
-        audioData,
-        {
-          headers: {
-            Authorization: `Bearer YOUR_OPENAI_API_KEY`,
-            'Content-Type': 'audio/wav',
-          },
-        },
-      );
+  sendUuid(connection: Socket): void {
+    const uuid = uuidv4();
+    const uuidBuffer = Buffer.from(uuid.replace(/-/g, ''), 'hex'); // Convert UUID string to Buffer
+    const type = 0x01; // Packet Type
+    const length = 16; // Packet Length
 
-      this.logger.log(`Transcription: ${response.data.text}`);
-    } catch (error) {
-      this.logger.error('Error sending audio to OpenAI:', error);
+    // Create the packet using Buffer.concat
+    const typeBuffer = Buffer.alloc(1);
+    typeBuffer.writeUInt8(type, 0);
+
+    const lengthBuffer = Buffer.alloc(2);
+    lengthBuffer.writeUInt16BE(length, 0); // Big-endian
+
+    const packet = Buffer.concat([typeBuffer, lengthBuffer, uuidBuffer]);
+
+    connection.write(packet);
+    this.logger.log(`Sent UUID ${uuid} to client.`);
+  }
+
+  // Example method to send data to a specific connection
+  sendData(connectionId: string, data: Buffer) {
+    const socket = this.connections.get(connectionId);
+    if (socket) {
+      socket.write(data);
+    } else {
+      this.logger.warn(`Connection ${connectionId} not found.`);
     }
   }
 }
