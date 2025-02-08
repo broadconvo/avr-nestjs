@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
 import { v4 as uuidv4 } from 'uuid';
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -19,9 +21,12 @@ export class AudioSocketService implements OnModuleInit {
       this.logger.log(`Client connected: ${connectionId}`);
       this.connections.set(connectionId, socket);
 
+      const audioBuffer: Buffer[] = [];
+
       // Handle data from the client
       socket.on('data', (data) => {
-        this.handleData(connectionId, data, socket);
+        audioBuffer.push(data); // Buffer incoming audio data
+        this.handleStreaming(connectionId, audioBuffer, socket);
       });
 
       // Handle client disconnection
@@ -35,8 +40,13 @@ export class AudioSocketService implements OnModuleInit {
         this.connections.delete(connectionId);
         socket.destroy();
       });
+
       this.sendUuid(socket);
-    });
+    }); // end new Server
+
+    /*
+     * Listeners for the 'error' and 'listening' events
+     */
 
     this.server.listen(this.port, () => {
       this.logger.log(`AudioSocket server listening on port ${this.port}`);
@@ -45,15 +55,51 @@ export class AudioSocketService implements OnModuleInit {
     this.server.on('error', (err) => {
       this.logger.error(`Server error: ${err.message}`, err.stack);
     });
-  }
+  } // end startServer
 
-  private handleData(connectionId: string, data: Buffer, socket: Socket) {
+  private async handleStreaming(
+    connectionId: string,
+    audioData: Buffer[],
+    socket: Socket,
+  ) {
     // Process the audio data here
     this.logger.debug(
-      `Received data from ${connectionId}: ${data.length} bytes`,
+      `Received data from ${connectionId}: ${audioData.length} bytes`,
     );
     // Example: Echo the data back to the client (for testing)
     //socket.write(data);
+
+    // Send audio to OpenAI for transcription
+    try {
+      const audioBuffer = Buffer.concat(audioData);
+
+      const result = await generateText({
+        model: openai('gpt-4o-audio-preview'),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is the audio saying?' },
+              {
+                type: 'file',
+                mimeType: 'audio/mpeg', // Adjust MIME type if necessary
+                data: audioBuffer,
+              },
+            ],
+          },
+        ],
+      });
+
+      this.logger.log(`Transcription from OpenAI: ${result.text}`);
+
+      // Send the transcribed text back to the client if needed
+      socket.write(result.text);
+
+      // Clear buffer after processing
+      audioData.length = 0;
+    } catch (error) {
+      this.logger.error(`Error streaming audio to OpenAI: ${error.message}`);
+    }
 
     //TODO: Implement your audio processing logic here
     // - Volume calculation
