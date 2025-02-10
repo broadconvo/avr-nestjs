@@ -100,7 +100,7 @@ export class AudioSocketService implements OnModuleInit {
       this.logger.log(`Transcription from OpenAI: ${result.text}`);
 
       // Send the transcribed text back to the client if needed
-      socket.write(result.text);
+      // socket.write(result.text);
 
       // Clear buffer after processing
       audioData.length = 0;
