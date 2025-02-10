@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
 import { v4 as uuidv4 } from 'uuid';
 import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -10,8 +10,12 @@ export class AudioSocketService implements OnModuleInit {
   private server: Server;
   private connections: Map<string, Socket> = new Map(); // Store connections by UUID
   private readonly port = 9093; // TCP Port
+  private openai: any;
 
   onModuleInit() {
+    this.openai = createOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
     this.startServer();
   }
 
@@ -67,14 +71,14 @@ export class AudioSocketService implements OnModuleInit {
       `Received data from ${connectionId}: ${audioData.length} bytes`,
     );
     // Example: Echo the data back to the client (for testing)
-    //socket.write(data);
+    // socket.write(data);
 
     // Send audio to OpenAI for transcription
     try {
       const audioBuffer = Buffer.concat(audioData);
 
       const result = await generateText({
-        model: openai('gpt-4o-audio-preview'),
+        model: this.openai('gpt-4o-audio-preview', { simulateStreaming: true }),
         messages: [
           {
             role: 'user',
