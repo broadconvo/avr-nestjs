@@ -24,6 +24,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ipcom/asterisk-ari": "^0.0.156",
     "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.0.8",
