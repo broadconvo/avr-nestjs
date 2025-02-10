@@ -63,7 +63,7 @@ export class AudioSocketService implements OnModuleInit {
     });
   } // end startServer
 
-  private async handleStreaming(
+  private handleStreaming(
     connectionId: string,
     audioData: Buffer[],
     socket: Socket,
@@ -78,29 +78,29 @@ export class AudioSocketService implements OnModuleInit {
     // Send audio to OpenAI for transcription
     try {
       const slin16Buffer = Buffer.concat(audioData); // Combine SLIN16 audio frames
-      const wavBuffer = await this.convertSlin16ToWav(slin16Buffer); // Convert to WAV
+      // const wavBuffer = await this.convertSlin16ToWav(slin16Buffer); // Convert to WAV
 
-      const result = await generateText({
-        model: this.openai('gpt-4o-audio-preview', { simulateStreaming: true }),
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'What is the audio saying?' },
-              {
-                type: 'file',
-                mimeType: 'audio/wav', // Adjust MIME type if necessary
-                data: wavBuffer,
-              },
-            ],
-          },
-        ],
-      });
+      // const result = await generateText({
+      //   model: this.openai('gpt-4o-audio-preview', { simulateStreaming: true }),
+      //   messages: [
+      //     {
+      //       role: 'user',
+      //       content: [
+      //         { type: 'text', text: 'What is the audio saying?' },
+      //         {
+      //           type: 'file',
+      //           mimeType: 'audio/wav', // Adjust MIME type if necessary
+      //           data: wavBuffer,
+      //         },
+      //       ],
+      //     },
+      //   ],
+      // });
 
-      this.logger.log(`Transcription from OpenAI: ${result.text}`);
+      // this.logger.log(`Transcription from OpenAI: ${result.text}`);
 
       // Send the transcribed text back to the client if needed
-      // socket.write(result.text);
+      socket.write(slin16Buffer);
 
       // Clear buffer after processing
       audioData.length = 0;
