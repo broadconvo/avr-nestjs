@@ -3,6 +3,8 @@ import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
 import { v4 as uuidv4 } from 'uuid';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
+import * as ffmpeg from 'fluent-ffmpeg';
+import { PassThrough } from 'stream';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -75,7 +77,8 @@ export class AudioSocketService implements OnModuleInit {
 
     // Send audio to OpenAI for transcription
     try {
-      const audioBuffer = Buffer.concat(audioData);
+      const slin16Buffer = Buffer.concat(audioData); // Combine SLIN16 audio frames
+      const wavBuffer = await this.convertSlin16ToWav(slin16Buffer); // Convert to WAV
 
       const result = await generateText({
         model: this.openai('gpt-4o-audio-preview', { simulateStreaming: true }),
@@ -86,8 +89,8 @@ export class AudioSocketService implements OnModuleInit {
               { type: 'text', text: 'What is the audio saying?' },
               {
                 type: 'file',
-                mimeType: 'audio/mpeg', // Adjust MIME type if necessary
-                data: audioBuffer,
+                mimeType: 'audio/wav', // Adjust MIME type if necessary
+                data: wavBuffer,
               },
             ],
           },
@@ -128,8 +131,30 @@ export class AudioSocketService implements OnModuleInit {
 
     const packet = Buffer.concat([typeBuffer, lengthBuffer, uuidBuffer]);
 
-    connection.write(packet);
-    this.logger.log(`Sent UUID ${uuid} to client.`);
+    // connection.write(packet);
+    // this.logger.log(`Sent UUID ${uuid} to client.`);
+  }
+
+  private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const inputStream = new PassThrough();
+      const outputStream = new PassThrough();
+      const chunks: Buffer[] = [];
+
+      inputStream.end(slin16Buffer);
+
+      ffmpeg(inputStream)
+        .inputFormat('s16le') // SLIN16 format
+        .audioFrequency(16000) // 16 kHz sample rate
+        .audioChannels(1) // Mono
+        .audioCodec('pcm_s16le') // PCM codec
+        .format('wav') // Output format: WAV
+        .on('error', reject)
+        .on('end', () => resolve(Buffer.concat(chunks)))
+        .pipe(outputStream);
+
+      outputStream.on('data', (chunk) => chunks.push(chunk));
+    });
   }
 
   // Example method to send data to a specific connection
