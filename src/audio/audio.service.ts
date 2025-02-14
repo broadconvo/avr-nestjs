@@ -158,8 +158,11 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.error(`Google STT Error: ${err.message}`);
       })
       .on('data', (data) => {
+        console.log(JSON.stringify(data, null, 2));
         const transcription = data.results
-          .map((result: any) => result.alternatives[0].transcript)
+          .map((result: any) => {
+            return result.alternatives[0].transcript;
+          })
           .join('\n');
 
         this.logger.log(`Transcription: ${transcription}`);
