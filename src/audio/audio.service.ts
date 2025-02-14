@@ -167,8 +167,8 @@ export class AudioSocketService implements OnModuleInit {
       config: {
         encoding:
           protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .LINEAR16, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 16000, // Standard for SLIN16
+            .MULAW, // SLIN16 is 16-bit PCM
+        sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
       },
       interimResults: true, // Get partial transcriptions
