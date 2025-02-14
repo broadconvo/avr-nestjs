@@ -6,6 +6,8 @@ import { createOpenAI } from '@ai-sdk/openai';
 import * as ffmpeg from 'fluent-ffmpeg';
 import { PassThrough } from 'stream';
 import { protos, SpeechClient } from '@google-cloud/speech';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -141,13 +143,32 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
+    this.logger.log('Starting Google STT Streaming...');
 
-    console.log(audioStream);
+    // Save received audio for debugging
+    const directoryPath = path.join(__dirname, '..', 'assets/audio');
+
+    if (!fs.existsSync(directoryPath)) {
+      fs.mkdirSync(directoryPath, { recursive: true });
+    }
+
+    const filePath = path.join(directoryPath, `debug_audio_${Date.now()}.raw`);
+    const writeStream = fs.createWriteStream(filePath);
+    audioStream.pipe(writeStream);
+
+    this.logger.log(`Saving raw audio to ${filePath}`);
+
+    // Verify that the stream is receiving data
+    audioStream.on('data', (chunk) => {
+      this.logger.debug(`Received chunk of ${chunk.length} bytes`);
+    });
+
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 8000, // Standard for SLIN16
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16, // SLIN16 is 16-bit PCM
+        sampleRateHertz: 16000, // Standard for SLIN16
         languageCode: 'en-US',
       },
       interimResults: true, // Get partial transcriptions
@@ -170,6 +191,7 @@ export class AudioSocketService implements OnModuleInit {
         // socket.write(`Transcription: ${transcription}\n`); // Send back text
       });
 
+    // ✅ Fix: Ensure `audioStream` pipes to `recognizeStream`
     audioStream.pipe(recognizeStream);
   }
 
