@@ -152,6 +152,7 @@ export class AudioSocketService implements OnModuleInit {
       'assets/audio',
     );
 
+    console.log(directoryPath);
     if (!fs.existsSync(directoryPath)) {
       fs.mkdirSync(directoryPath, { recursive: true });
     }
