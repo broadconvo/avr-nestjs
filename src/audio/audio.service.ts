@@ -39,11 +39,11 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       // Handle client disconnection
-      socket.on('end', async () => {
+      socket.on('end', () => {
         this.logger.log(`Client disconnected: ${connectionId}`);
         this.connections.delete(connectionId);
         audioStream.end(); // Close stream
-        await this.streamToGoogleSTT(audioStream, socket); // Start STT
+        this.streamToGoogleSTT(audioStream, socket); // Start STT
       });
 
       socket.on('error', (err) => {
@@ -140,12 +140,12 @@ export class AudioSocketService implements OnModuleInit {
     // this.logger.log(`Sent UUID ${uuid} to client.`);
   }
 
-  private async streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
+  private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
           protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .LINEAR16, // SLIN16 is 16-bit PCM
+            .MULAW, // SLIN16 is 16-bit PCM
         sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
       },
