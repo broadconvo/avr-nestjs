@@ -141,11 +141,12 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
+
+    console.log(audioStream);
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .MULAW, // SLIN16 is 16-bit PCM
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW, // SLIN16 is 16-bit PCM
         sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
       },
