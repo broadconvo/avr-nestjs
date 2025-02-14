@@ -146,13 +146,9 @@ export class AudioSocketService implements OnModuleInit {
     this.logger.log('Starting Google STT Streaming...');
 
     // Save received audio for debugging
-    const directoryPath = path.join(
-      '/data/nodejs/avr-nestjs',
-      '..',
-      'assets/audio',
-    );
+    const directoryPath = path.join(__dirname, '..', 'assets/audio');
+    this.logger.log(directoryPath);
 
-    console.log(directoryPath);
     if (!fs.existsSync(directoryPath)) {
       fs.mkdirSync(directoryPath, { recursive: true });
     }
