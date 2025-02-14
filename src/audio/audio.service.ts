@@ -5,6 +5,7 @@ import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import * as ffmpeg from 'fluent-ffmpeg';
 import { PassThrough } from 'stream';
+import { protos, SpeechClient } from '@google-cloud/speech';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -13,8 +14,11 @@ export class AudioSocketService implements OnModuleInit {
   private connections: Map<string, Socket> = new Map(); // Store connections by UUID
   private readonly port = 9093; // TCP Port
   private openai: any;
+  private speechClient: SpeechClient;
+
 
   onModuleInit() {
+    this.speechClient = new SpeechClient();
     this.openai = createOpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -27,18 +31,19 @@ export class AudioSocketService implements OnModuleInit {
       this.logger.log(`Client connected: ${connectionId}`);
       this.connections.set(connectionId, socket);
 
-      const audioBuffer: Buffer[] = [];
+      const audioStream = new PassThrough(); // Stream SLIN16 data
 
       // Handle data from the client
       socket.on('data', (data) => {
-        audioBuffer.push(data); // Buffer incoming audio data
-        this.handleStreaming(connectionId, audioBuffer, socket);
+        audioStream.write(data); // Push SLIN16 data
       });
 
       // Handle client disconnection
-      socket.on('end', () => {
+      socket.on('end', async () => {
         this.logger.log(`Client disconnected: ${connectionId}`);
         this.connections.delete(connectionId);
+        audioStream.end(); // Close stream
+        await this.streamToGoogleSTT(audioStream, socket); // Start STT
       });
 
       socket.on('error', (err) => {
@@ -47,7 +52,7 @@ export class AudioSocketService implements OnModuleInit {
         socket.destroy();
       });
 
-      this.sendUuid(socket);
+      // this.sendUuid(socket);
     }); // end new Server
 
     /*
@@ -100,7 +105,7 @@ export class AudioSocketService implements OnModuleInit {
       // this.logger.log(`Transcription from OpenAI: ${result.text}`);
 
       // Send the transcribed text back to the client if needed
-      socket.write(slin16Buffer);
+      // socket.write(slin16Buffer);
 
       // Clear buffer after processing
       audioData.length = 0;
@@ -133,6 +138,35 @@ export class AudioSocketService implements OnModuleInit {
 
     // connection.write(packet);
     // this.logger.log(`Sent UUID ${uuid} to client.`);
+  }
+
+  private async streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
+    const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
+      config: {
+        encoding:
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16, // SLIN16 is 16-bit PCM
+        sampleRateHertz: 16000, // Standard for SLIN16
+        languageCode: 'en-US',
+      },
+      interimResults: true, // Get partial transcriptions
+    };
+
+    const recognizeStream = this.speechClient
+      .streamingRecognize(request)
+      .on('error', (err) => {
+        this.logger.error(`Google STT Error: ${err.message}`);
+      })
+      .on('data', (data) => {
+        const transcription = data.results
+          .map((result: any) => result.alternatives[0].transcript)
+          .join('\n');
+
+        this.logger.log(`Transcription: ${transcription}`);
+        // socket.write(`Transcription: ${transcription}\n`); // Send back text
+      });
+
+    audioStream.pipe(recognizeStream);
   }
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
