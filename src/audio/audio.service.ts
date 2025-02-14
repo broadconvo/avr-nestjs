@@ -159,11 +159,6 @@ export class AudioSocketService implements OnModuleInit {
 
     this.logger.log(`Saving raw audio to ${filePath}`);
 
-    // Verify that the stream is receiving data
-    audioStream.on('data', (chunk) => {
-      this.logger.debug(`Received chunk of ${chunk.length} bytes`);
-    });
-
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
