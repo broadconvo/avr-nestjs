@@ -145,6 +145,7 @@ export class AudioSocketService implements OnModuleInit {
 
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     this.logger.log('Starting Google STT Streaming...');
+    console.log(audioStream);
 
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
@@ -163,7 +164,7 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.error(`Google STT Error: ${err.message}`);
       })
       .on('data', (data) => {
-        console.log(JSON.stringify(data, null, 2));
+        // console.log(JSON.stringify(data, null, 2));
         if (
           data.results &&
           data.results[0] &&
