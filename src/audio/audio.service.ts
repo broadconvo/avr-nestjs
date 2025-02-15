@@ -151,8 +151,8 @@ export class AudioSocketService implements OnModuleInit {
       config: {
         encoding:
           protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .LINEAR16, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 16000, // Standard for SLIN16
+            .MULAW, // SLIN16 is 16-bit PCM
+        sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
       },
       interimResults: true, // Get partial transcriptions
@@ -164,7 +164,7 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.error(`Google STT Error: ${err.message}`);
       })
       .on('data', (data) => {
-        // console.log(JSON.stringify(data, null, 2));
+        console.log(JSON.stringify(data, null, 2));
         if (
           data.results &&
           data.results[0] &&
