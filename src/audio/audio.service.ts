@@ -148,6 +148,7 @@ export class AudioSocketService implements OnModuleInit {
 
     const convertedAudioStream = new PassThrough();
 
+    this.logger.log('Convert raw MULAW to WAV using FFmpeg...');
     // ✅ Convert raw MULAW to WAV using FFmpeg
     ffmpeg(audioStream)
       .inputFormat('mulaw') // ✅ Convert from MULAW
@@ -170,6 +171,7 @@ export class AudioSocketService implements OnModuleInit {
       interimResults: true, // Get partial transcriptions
     };
 
+    this.logger.log('Transcribing...');
     const recognizeStream = this.speechClient
       .streamingRecognize(request)
       .on('error', (err) => {
@@ -177,19 +179,12 @@ export class AudioSocketService implements OnModuleInit {
       })
       .on('data', (data) => {
         console.log(JSON.stringify(data, null, 2));
-        if (
-          data.results &&
-          data.results[0] &&
-          data.results[0].alternatives[0]
-        ) {
+        if (data.results?.[0]?.alternatives?.[0]?.transcript) {
           const transcription = data.results[0].alternatives[0].transcript;
+          this.logger.log(`Live Transcription: ${transcription}`);
 
-          if (transcription.trim()) {
-            this.logger.log(`Live Transcription: ${transcription}`);
-
-            // ✅ Send back real-time transcription to Asterisk (or WebSocket)
-            // socket.write(`Transcription: ${transcription}\n`);
-          }
+          // ✅ Send transcription back to Asterisk (or WebSocket)
+          // socket.write(`Transcription: ${transcription}\n`);
         } // end if
       }); // end on-data
 
