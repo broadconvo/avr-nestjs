@@ -157,36 +157,47 @@ export class AudioSocketService implements OnModuleInit {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
     const writeStream = fs.createWriteStream(filePath);
-    audioStream.pipe(writeStream);
 
-    this.logger.log(`Saving raw audio to: ${filePath}`);
+    // Create two cloned streams from the original audioStream:
+    const audioStreamForFile = new PassThrough();
+    const audioStreamForConversion = new PassThrough();
+    // Pipe the original stream into both clones
+    audioStream.pipe(audioStreamForFile);
+    audioStream.pipe(audioStreamForConversion);
 
-    // ----
+    // Pipe one clone to file to save the raw SLIN8 audio
+    audioStreamForFile.pipe(writeStream);
+    this.logger.log(`Saving raw SLIN8 audio to: ${filePath}`);
+
+    // Convert SLIN8 to LINEAR16 using FFmpeg on the conversion clone
     const convertedAudioStream = new PassThrough();
 
-    this.logger.log('Convert raw MULAW to WAV using FFmpeg...');
-    // ✅ Convert raw MULAW to WAV using FFmpeg
-    ffmpeg(audioStream)
-      .inputFormat('mulaw') // ✅ Convert from MULAW
-      .audioFrequency(8000) // ✅ Keep sample rate at 8kHz
-      .audioChannels(1)
-      .audioCodec('pcm_mulaw') // ✅ Encapsulate in WAV
-      .format('wav')
+    this.logger.log(
+      'Converting SLIN8 (8kHz PCM) to LINEAR16 (8kHz, 16-bit PCM) using FFmpeg...',
+    );
+    ffmpeg(audioStreamForConversion)
+      .inputFormat('s16le') // Input is SLIN (Signed Linear PCM)
+      .audioFrequency(8000) // 8kHz sample rate
+      .audioChannels(1) // Mono audio
+      .audioCodec('pcm_s16le') // Convert to 16-bit PCM (LINEAR16)
+      .format('wav') // Output as WAV container (required by Google STT)
       .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
       .pipe(convertedAudioStream);
 
+    // Configure Google STT request
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 8000, // Standard for SLIN16
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16,
+        sampleRateHertz: 8000, // 8kHz sample rate
         languageCode: 'en-US',
-        enableAutomaticPunctuation: true, // ✅ Enable punctuation for better text
+        enableAutomaticPunctuation: true,
       },
-      interimResults: true, // Get partial transcriptions
+      interimResults: true, // Get partial transcriptions in real-time
     };
 
-    this.logger.log('Transcribing...');
+    this.logger.log('Transcribing with Google STT...');
     const recognizeStream = this.speechClient
       .streamingRecognize(request)
       .on('error', (err) => {
@@ -198,14 +209,14 @@ export class AudioSocketService implements OnModuleInit {
           const transcription = data.results[0].alternatives[0].transcript;
           this.logger.log(`Live Transcription: ${transcription}`);
 
-          // ✅ Send transcription back to Asterisk (or WebSocket)
-          // socket.write(`Transcription: ${transcription}\n`);
-        } // end if
-      }); // end on-data
+          // Send transcription back to the client (Asterisk or WebSocket)
+          socket.write(`Transcription: ${transcription}\n`);
+        }
+      });
 
-    // ✅ Fix: Pipe the incoming audio stream to Google STT continuously
+    // Pipe the converted audio stream to the Google STT recognize stream
     convertedAudioStream.pipe(recognizeStream);
-  }
+  } // end of function
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
     return new Promise((resolve, reject) => {
