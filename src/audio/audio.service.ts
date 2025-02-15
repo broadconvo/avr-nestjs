@@ -40,12 +40,13 @@ export class AudioSocketService implements OnModuleInit {
         audioStream.write(data); // Push SLIN16 data
       });
 
+      this.streamToGoogleSTT(audioStream, socket); // Start STT
+
       // Handle client disconnection
       socket.on('end', () => {
         this.logger.log(`Client disconnected: ${connectionId}`);
         this.connections.delete(connectionId);
         audioStream.end(); // Close stream
-        this.streamToGoogleSTT(audioStream, socket); // Start STT
       });
 
       socket.on('error', (err) => {
@@ -148,7 +149,8 @@ export class AudioSocketService implements OnModuleInit {
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.LINEAR16, // SLIN16 is 16-bit PCM
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16, // SLIN16 is 16-bit PCM
         sampleRateHertz: 16000, // Standard for SLIN16
         languageCode: 'en-US',
       },
@@ -162,17 +164,23 @@ export class AudioSocketService implements OnModuleInit {
       })
       .on('data', (data) => {
         console.log(JSON.stringify(data, null, 2));
-        const transcription = data.results
-          .map((result: any) => {
-            return result.alternatives[0].transcript;
-          })
-          .join('\n');
+        if (
+          data.results &&
+          data.results[0] &&
+          data.results[0].alternatives[0]
+        ) {
+          const transcription = data.results[0].alternatives[0].transcript;
 
-        this.logger.log(`Transcription: ${transcription}`);
-        // socket.write(`Transcription: ${transcription}\n`); // Send back text
-      });
+          if (transcription.trim()) {
+            this.logger.log(`Live Transcription: ${transcription}`);
 
-    // ✅ Fix: Ensure `audioStream` pipes to `recognizeStream`
+            // ✅ Send back real-time transcription to Asterisk (or WebSocket)
+            // socket.write(`Transcription: ${transcription}\n`);
+          }
+        } // end if
+      }); // end on-data
+
+    // ✅ Fix: Pipe the incoming audio stream to Google STT continuously
     audioStream.pipe(recognizeStream);
   }
 
