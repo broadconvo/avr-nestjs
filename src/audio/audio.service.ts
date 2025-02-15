@@ -145,25 +145,23 @@ export class AudioSocketService implements OnModuleInit {
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     this.logger.log('Starting Google STT Streaming...');
 
-    // Save received audio for debugging
-    const directoryPath = path.join(__dirname, '..', 'assets/audio');
-    this.logger.log(directoryPath);
+    const convertedAudioStream = new PassThrough();
 
-    if (!fs.existsSync(directoryPath)) {
-      fs.mkdirSync(directoryPath, { recursive: true });
-    }
-
-    const filePath = path.join(directoryPath, `debug_audio_${Date.now()}.raw`);
-    const writeStream = fs.createWriteStream(filePath);
-    audioStream.pipe(writeStream);
-
-    this.logger.log(`Saving raw audio to ${filePath}`);
+    ffmpeg(audioStream)
+      .inputFormat('s16le')
+      .audioFrequency(8000) // Incoming SLIN8
+      .audioChannels(1)
+      .audioCodec('pcm_s16le')
+      .outputFormat('wav')
+      .audioFrequency(16000) // Convert to SLIN16
+      .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
+      .pipe(convertedAudioStream);
 
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
           protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.LINEAR16, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 8000, // Standard for SLIN16
+        sampleRateHertz: 16000, // Standard for SLIN16
         languageCode: 'en-US',
       },
       interimResults: true, // Get partial transcriptions
@@ -187,7 +185,7 @@ export class AudioSocketService implements OnModuleInit {
       });
 
     // ✅ Fix: Ensure `audioStream` pipes to `recognizeStream`
-    audioStream.pipe(recognizeStream);
+    convertedAudioStream.pipe(recognizeStream);
   }
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
