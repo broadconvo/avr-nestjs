@@ -18,7 +18,6 @@ export class AudioSocketService implements OnModuleInit {
   private openai: any;
   private speechClient: SpeechClient;
 
-
   onModuleInit() {
     this.speechClient = new SpeechClient();
     this.openai = createOpenAI({
@@ -146,6 +145,23 @@ export class AudioSocketService implements OnModuleInit {
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     this.logger.log('Starting Google STT Streaming...');
 
+    const filePath = path.join(
+      __dirname,
+      '..',
+      'assets',
+      'audio',
+      'debug_audio.raw',
+    );
+
+    // Ensure the directory exists before writing
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+    const writeStream = fs.createWriteStream(filePath);
+    audioStream.pipe(writeStream);
+
+    this.logger.log(`Saving raw audio to: ${filePath}`);
+
+    // ----
     const convertedAudioStream = new PassThrough();
 
     this.logger.log('Convert raw MULAW to WAV using FFmpeg...');
@@ -162,8 +178,7 @@ export class AudioSocketService implements OnModuleInit {
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .MULAW, // SLIN16 is 16-bit PCM
+          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW, // SLIN16 is 16-bit PCM
         sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
         enableAutomaticPunctuation: true, // ✅ Enable punctuation for better text
