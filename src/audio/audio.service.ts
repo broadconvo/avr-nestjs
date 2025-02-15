@@ -177,8 +177,9 @@ export class AudioSocketService implements OnModuleInit {
     );
     ffmpeg(audioStreamForConversion)
       .inputFormat('s16le') // Input is SLIN (Signed Linear PCM)
-      .audioFrequency(8000) // 8kHz sample rate
+      .inputOptions(['-ar 8000'])
       .audioChannels(1) // Mono audio
+      .outputOptions(['-ar 44100']) // 44.1kHz sample rate
       .audioCodec('pcm_s16le') // Convert to 16-bit PCM (LINEAR16)
       .format('wav') // Output as WAV container (required by Google STT)
       .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
