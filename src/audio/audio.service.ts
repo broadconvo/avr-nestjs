@@ -145,7 +145,18 @@ export class AudioSocketService implements OnModuleInit {
 
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     this.logger.log('Starting Google STT Streaming...');
-    console.log(audioStream);
+
+    const convertedAudioStream = new PassThrough();
+
+    // ✅ Convert raw MULAW to WAV using FFmpeg
+    ffmpeg(audioStream)
+      .inputFormat('mulaw') // ✅ Convert from MULAW
+      .audioFrequency(8000) // ✅ Keep sample rate at 8kHz
+      .audioChannels(1)
+      .audioCodec('pcm_mulaw') // ✅ Encapsulate in WAV
+      .format('wav')
+      .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
+      .pipe(convertedAudioStream);
 
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
@@ -154,6 +165,7 @@ export class AudioSocketService implements OnModuleInit {
             .MULAW, // SLIN16 is 16-bit PCM
         sampleRateHertz: 8000, // Standard for SLIN16
         languageCode: 'en-US',
+        enableAutomaticPunctuation: true, // ✅ Enable punctuation for better text
       },
       interimResults: true, // Get partial transcriptions
     };
@@ -182,7 +194,7 @@ export class AudioSocketService implements OnModuleInit {
       }); // end on-data
 
     // ✅ Fix: Pipe the incoming audio stream to Google STT continuously
-    audioStream.pipe(recognizeStream);
+    convertedAudioStream.pipe(recognizeStream);
   }
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
