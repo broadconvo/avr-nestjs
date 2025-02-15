@@ -145,18 +145,6 @@ export class AudioSocketService implements OnModuleInit {
   private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
     this.logger.log('Starting Google STT Streaming...');
 
-    const convertedAudioStream = new PassThrough();
-
-    ffmpeg(audioStream)
-      .inputFormat('s16le')
-      .audioFrequency(8000) // Incoming SLIN8
-      .audioChannels(1)
-      .audioCodec('pcm_s16le')
-      .outputFormat('wav')
-      .audioFrequency(16000) // Convert to SLIN16
-      .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
-      .pipe(convertedAudioStream);
-
     const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
       config: {
         encoding:
@@ -185,7 +173,7 @@ export class AudioSocketService implements OnModuleInit {
       });
 
     // ✅ Fix: Ensure `audioStream` pipes to `recognizeStream`
-    convertedAudioStream.pipe(recognizeStream);
+    audioStream.pipe(recognizeStream);
   }
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
