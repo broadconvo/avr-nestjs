@@ -31,7 +31,7 @@ export class AudioSocketService implements OnModuleInit {
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection(async (req, res) => {
-      console.log('new connection from:', req.ref);
+      this.logger.log('new connection from:', req.ref);
 
       res.onData((data) => {
         // Handle incoming audio data and send it back to the client
@@ -39,7 +39,7 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       res.onClose(() => {
-        console.log('connection closed');
+        this.logger.log('connection closed');
       });
 
       res.onError((err) => {
@@ -51,7 +51,7 @@ export class AudioSocketService implements OnModuleInit {
     });
 
     audioSocket.listen(this.port, () => {
-      console.log(`server listening on port ${this.port}`);
+      this.logger.log(`server listening on port ${this.port}`);
     });
   } // end startServer
 
