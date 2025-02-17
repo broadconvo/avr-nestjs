@@ -28,6 +28,14 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private startServer() {
+    const loadingAudioPath = path.join(
+      __dirname,
+      '..',
+      'assets',
+      'audio',
+      'loading.mp3',
+    );
+
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection(async (req, res) => {
@@ -47,7 +55,7 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       // Utility for playing audio files
-      // await res.play('/path/to/audio/file');
+      await res.play(loadingAudioPath);
     });
 
     audioSocket.listen(this.port, () => {
