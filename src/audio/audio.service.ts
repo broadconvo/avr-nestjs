@@ -34,7 +34,7 @@ export class AudioSocketService implements OnModuleInit {
       '..',
       'assets',
       'audio',
-      'loading.wav',
+      'greetings.wav',
     );
 
     const audioSocket = new AudioSocket();
