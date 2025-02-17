@@ -22,6 +22,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^1.1.9",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@fonoster/streams": "^0.9.7",
     "@google-cloud/speech": "^6.7.0",
     "@ipcom/asterisk-ari": "^0.0.156",
     "@nestjs/common": "^11.0.1",
