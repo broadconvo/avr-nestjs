@@ -3,13 +3,6 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true,
-    "assets": [
-      {
-        "include": "../assets/audio/*",
-        "outDir": "./dist/assets"
-      }
-    ],
-    "watchAssets": true
+    "deleteOutDir": true
   }
 }
