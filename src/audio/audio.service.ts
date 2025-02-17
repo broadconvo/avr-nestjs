@@ -8,6 +8,7 @@ import { PassThrough } from 'stream';
 import { protos, SpeechClient } from '@google-cloud/speech';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { AudioSocket } from '@fonoster/streams';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -27,46 +28,26 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private startServer() {
-    this.server = new Server((socket) => {
-      const connectionId = uuidv4(); // Generate a UUID for the connection
-      this.logger.log(`Client connected: ${connectionId}`);
-      this.connections.set(connectionId, socket);
+    const audioSocket = new AudioSocket();
 
-      const audioStream = new PassThrough(); // Stream SLIN16 data
+    audioSocket.onConnection(async (req, res) => {
+      console.log('new connection from:', req.ref);
 
-      // Handle data from the client
-      socket.on('data', (data) => {
-        audioStream.write(data); // Push SLIN16 data
+      res.onData((data) => {
+        // Handle incoming audio data and send it back to the client
+        res.write(data);
       });
 
-      this.streamToGoogleSTT(audioStream, socket); // Start STT
-
-      // Handle client disconnection
-      socket.on('end', () => {
-        this.logger.log(`Client disconnected: ${connectionId}`);
-        this.connections.delete(connectionId);
-        audioStream.end(); // Close stream
+      res.onClose(() => {
+        console.log('connection closed');
       });
 
-      socket.on('error', (err) => {
-        this.logger.error(`Socket error: ${err.message}`, err.stack);
-        this.connections.delete(connectionId);
-        socket.destroy();
+      res.onError((err) => {
+        console.error('connection error:', err);
       });
 
-      // this.sendUuid(socket);
-    }); // end new Server
-
-    /*
-     * Listeners for the 'error' and 'listening' events
-     */
-
-    this.server.listen(this.port, () => {
-      this.logger.log(`AudioSocket server listening on port ${this.port}`);
-    });
-
-    this.server.on('error', (err) => {
-      this.logger.error(`Server error: ${err.message}`, err.stack);
+      // Utility for playing audio files
+      // await res.play('/path/to/audio/file');
     });
   } // end startServer
 
@@ -176,31 +157,30 @@ export class AudioSocketService implements OnModuleInit {
       'Converting SLIN8 (8kHz PCM) to LINEAR16 (8kHz, 16-bit PCM) using FFmpeg...',
     );
     ffmpeg(audioStreamForConversion)
-      .inputFormat('s16le') // Input is SLIN (Signed Linear PCM)
-      .inputOptions(['-ar 8000'])
+      .inputFormat('ulaw') // Input is SLIN (Signed Linear PCM)
+      .audioFrequency(8000) // 8kHz sample rate
       .audioChannels(1) // Mono audio
-      .outputOptions(['-ar 44100']) // 44.1kHz sample rate
       .audioCodec('pcm_s16le') // Convert to 16-bit PCM (LINEAR16)
       .format('wav') // Output as WAV container (required by Google STT)
       .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
       .pipe(convertedAudioStream);
 
     // Configure Google STT request
-    const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
-      config: {
-        encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .LINEAR16,
-        sampleRateHertz: 8000, // 8kHz sample rate
-        languageCode: 'en-US',
-        enableAutomaticPunctuation: true,
-      },
-      interimResults: true, // Get partial transcriptions in real-time
-    };
+    const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitionConfig =
+      {
+        config: {
+          encoding:
+            protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW,
+          sampleRateHertz: 8000, // 8kHz sample rate
+          languageCode: 'en-US',
+          enableAutomaticPunctuation: true,
+        },
+        interimResults: true, // Get partial transcriptions in real-time
+      };
 
     this.logger.log('Transcribing with Google STT...');
     const recognizeStream = this.speechClient
-      .streamingRecognize(request)
+      .streamingRecognize(streamingConfig)
       .on('error', (err) => {
         this.logger.error(`Google STT Error: ${err.message}`);
       })
