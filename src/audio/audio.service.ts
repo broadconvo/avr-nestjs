@@ -49,6 +49,10 @@ export class AudioSocketService implements OnModuleInit {
       // Utility for playing audio files
       // await res.play('/path/to/audio/file');
     });
+
+    audioSocket.listen(this.port, () => {
+      console.log(`server listening on port ${this.port}`);
+    });
   } // end startServer
 
   private handleStreaming(
