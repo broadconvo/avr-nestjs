@@ -34,7 +34,7 @@ export class AudioSocketService implements OnModuleInit {
       '..',
       'assets',
       'audio',
-      'loading.mp3',
+      'loading.wav',
     );
 
     console.log('loadingAudioPath:', loadingAudioPath);
@@ -57,6 +57,7 @@ export class AudioSocketService implements OnModuleInit {
         console.error('connection error:', err);
       });
 
+      // plays SLIN16 4kHz audio mono channel
       // Utility for playing audio files
       await res.play(loadingAudioPath);
     });
