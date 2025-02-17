@@ -37,8 +37,6 @@ export class AudioSocketService implements OnModuleInit {
       'loading.wav',
     );
 
-    console.log('loadingAudioPath:', loadingAudioPath);
-
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection(async (req, res) => {
