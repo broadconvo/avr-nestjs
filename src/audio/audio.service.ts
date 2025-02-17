@@ -30,7 +30,6 @@ export class AudioSocketService implements OnModuleInit {
   private startServer() {
     const loadingAudioPath = path.join(
       __dirname,
-      '..',
       'assets',
       'audio',
       'loading.mp3',
