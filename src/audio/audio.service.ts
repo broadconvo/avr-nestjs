@@ -190,6 +190,7 @@ export class AudioSocketService implements OnModuleInit {
     vadStream
       .on('data', (data: VAD.Result) => {
         if (data.speech.start) {
+          this.logger.log('Speaking.');
           if (!isSpeaking) {
             this.logger.log(`Speech started, writing to file.`);
             isSpeaking = true;
