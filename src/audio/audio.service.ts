@@ -154,27 +154,37 @@ export class AudioSocketService implements OnModuleInit {
     this.logger.log('Starting Google STT Streaming...');
 
     // Configure node-vad (you can choose between NORMAL, AGGRESSIVE, VERY_AGGRESSIVE)
-    const vadInstance = new VAD({
-      sourceSampleRate: 8000,
-      vadMode: VAD.Mode.AGGRESSIVE,
-      voiceStopTime: 1000, // 1 second of silence before we consider speech ended
+    const vadStream = VAD.createStream({
+      audioFrequency: 8000,
+      mode: VAD.Mode.NORMAL,
+      debounceTime: 1000, // 1 second of silence before we consider speech ended
     });
 
     // Pipe the audio stream into the VAD instance.
     // The VAD instance is a transform stream that passes through the audio data.
-    const vadStream = audioStream.pipe(vadInstance);
+    audioStream
+      .pipe(vadStream)
+      .on('data', (data: VAD.Result) => {
+        // Handle the VAD results here
+        this.logger.debug(
+          `Time: ${data.time}, Speech State: ${data.speech.state}`,
+        );
 
-    // Listen for silence events.
-    vadInstance.on('silence', () => {
-      this.logger.log(
-        'Detected prolonged silence. Ending current STT stream...',
-      );
-    });
-
-    // (Optional) Listen for speech events.
-    vadInstance.on('speech', () => {
-      this.logger.debug('Speech detected.');
-    });
+        if (data.speech.start) {
+          this.logger.log(`Speech started at ${data.speech.startTime}`);
+        }
+        if (data.speech.end) {
+          this.logger.log(
+            `Speech ended at ${data.time}, duration: ${data.speech.duration}`,
+          );
+        }
+      })
+      .on('end', () => {
+        this.logger.log('Audio stream ended');
+      })
+      .on('error', (err) => {
+        this.logger.error('Error processing audio stream:', err);
+      });
     /**
      * -----------------------------------------------------------------
      * Save the original SLIN8 audio to a file for debugging
