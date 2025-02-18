@@ -301,14 +301,4 @@ export class AudioSocketService implements OnModuleInit {
       outputStream.on('data', (chunk) => chunks.push(chunk));
     });
   }
-
-  // Example method to send data to a specific connection
-  sendData(connectionId: string, data: Buffer) {
-    const socket = this.connections.get(connectionId);
-    if (socket) {
-      socket.write(data);
-    } else {
-      this.logger.warn(`Connection ${connectionId} not found.`);
-    }
-  }
 }
