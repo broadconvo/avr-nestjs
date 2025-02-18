@@ -9,7 +9,7 @@ import { protos, SpeechClient } from '@google-cloud/speech';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AudioSocket } from '@fonoster/streams';
-import Vad from 'node-vad';
+import * as VAD from 'node-vad';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -19,6 +19,7 @@ export class AudioSocketService implements OnModuleInit {
   private readonly port = 9093; // TCP Port
   private openai: any;
   private speechClient: SpeechClient;
+  private vadInstance: VAD;
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
@@ -26,6 +27,10 @@ export class AudioSocketService implements OnModuleInit {
       apiKey: process.env.OPENAI_API_KEY,
     });
     this.startServer();
+  }
+
+  createStream(options: VAD.StreamOptions): any {
+    return VAD.createStream(options);
   }
 
   private startServer() {
@@ -149,37 +154,27 @@ export class AudioSocketService implements OnModuleInit {
     this.logger.log('Starting Google STT Streaming...');
 
     // Configure node-vad (you can choose between NORMAL, AGGRESSIVE, VERY_AGGRESSIVE)
-    const vadInstance = new Vad(Vad.Mode.AGGRESSIVE);
-    let silenceCounter = 0;
-    const silenceThreshold = 5; // For example, 5 consecutive silent frames
-    // For demonstration, let's pipe the audio stream into our VAD detector
-    audioStream.on('data', (chunk: Buffer) => {
-      // Process each chunk; ensure your audio is in LINEAR16 (16-bit PCM, little-endian) at 8000 Hz
-      vadInstance
-        .processAudio(chunk, 8000)
-        .then((result: string) => {
-          if (result === Vad.Event.SILENCE) {
-            silenceCounter++;
-            this.logger.debug(`Silence detected: count=${silenceCounter}`);
-            if (silenceCounter >= silenceThreshold) {
-              this.logger.log(
-                'Detected prolonged silence. Ending STT stream...',
-              );
-              // End your STT stream here, e.g.:
-              // recognizeStream.end();
-              // Optionally reset silenceCounter if starting a new session later
-            }
-          } else if (result === Vad.Event.VOICE) {
-            // Reset counter if voice is detected
-            silenceCounter = 0;
-            this.logger.debug('Voice detected.');
-          }
-        }) // end then
-        .catch((err: Error) => {
-          this.logger.error(`VAD processing error: ${err.message}`);
-        }); // end catch
-    }); // end audioStream on data
+    const vadInstance = new VAD({
+      sourceSampleRate: 8000,
+      vadMode: VAD.Mode.AGGRESSIVE,
+      voiceStopTime: 1000, // 1 second of silence before we consider speech ended
+    });
 
+    // Pipe the audio stream into the VAD instance.
+    // The VAD instance is a transform stream that passes through the audio data.
+    const vadStream = audioStream.pipe(vadInstance);
+
+    // Listen for silence events.
+    vadInstance.on('silence', () => {
+      this.logger.log(
+        'Detected prolonged silence. Ending current STT stream...',
+      );
+    });
+
+    // (Optional) Listen for speech events.
+    vadInstance.on('speech', () => {
+      this.logger.debug('Speech detected.');
+    });
     /**
      * -----------------------------------------------------------------
      * Save the original SLIN8 audio to a file for debugging
