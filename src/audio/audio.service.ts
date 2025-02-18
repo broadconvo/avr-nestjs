@@ -9,6 +9,7 @@ import { protos, SpeechClient } from '@google-cloud/speech';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AudioSocket } from '@fonoster/streams';
+import Vad from 'node-vad';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -37,24 +38,30 @@ export class AudioSocketService implements OnModuleInit {
       'greetings.wav',
     );
 
+    const audioStream = new PassThrough();
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection(async (req, res) => {
       this.logger.log('new connection from:', req.ref);
 
       res.onData((data) => {
+        audioStream.write(data);
+
         // Handle incoming audio data and send it back to the client
-        this.streamToGoogleSTT(data);
         res.write(data);
       });
 
       res.onClose(() => {
+        audioStream.end();
         this.logger.log('connection closed');
       });
 
       res.onError((err) => {
+        audioStream.end();
         console.error('connection error:', err);
       });
+
+      this.streamToGoogleSTT(audioStream);
 
       // plays SLIN16 4kHz audio mono channel
       // Utility for playing audio files
@@ -138,8 +145,40 @@ export class AudioSocketService implements OnModuleInit {
     // this.logger.log(`Sent UUID ${uuid} to client.`);
   }
 
-  private streamToGoogleSTT(audioStream: ArrayBuffer) {
+  private streamToGoogleSTT(audioStream: PassThrough) {
     this.logger.log('Starting Google STT Streaming...');
+
+    // Configure node-vad (you can choose between NORMAL, AGGRESSIVE, VERY_AGGRESSIVE)
+    const vadInstance = new Vad(Vad.Mode.AGGRESSIVE);
+    let silenceCounter = 0;
+    const silenceThreshold = 5; // For example, 5 consecutive silent frames
+    // For demonstration, let's pipe the audio stream into our VAD detector
+    audioStream.on('data', (chunk: Buffer) => {
+      // Process each chunk; ensure your audio is in LINEAR16 (16-bit PCM, little-endian) at 8000 Hz
+      vadInstance
+        .processAudio(chunk, 8000)
+        .then((result: string) => {
+          if (result === Vad.Event.SILENCE) {
+            silenceCounter++;
+            this.logger.debug(`Silence detected: count=${silenceCounter}`);
+            if (silenceCounter >= silenceThreshold) {
+              this.logger.log(
+                'Detected prolonged silence. Ending STT stream...',
+              );
+              // End your STT stream here, e.g.:
+              // recognizeStream.end();
+              // Optionally reset silenceCounter if starting a new session later
+            }
+          } else if (result === Vad.Event.VOICE) {
+            // Reset counter if voice is detected
+            silenceCounter = 0;
+            this.logger.debug('Voice detected.');
+          }
+        }) // end then
+        .catch((err: Error) => {
+          this.logger.error(`VAD processing error: ${err.message}`);
+        }); // end catch
+    }); // end audioStream on data
 
     /**
      * -----------------------------------------------------------------
@@ -154,19 +193,10 @@ export class AudioSocketService implements OnModuleInit {
       'audio',
       'debug_audio.raw',
     );
-
     // Ensure the directory exists before writing
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
     const writeStream = fs.createWriteStream(filePath);
-
-    // Create two cloned streams from the original audioStream:
-    this.logger.log('Pipe the original stream into both clones');
-    const audioStreamForFile = new PassThrough();
-    audioStreamForFile.write(audioStream);
-
-    // Pipe one clone to file to save the raw SLIN8 audio
-    audioStreamForFile.pipe(writeStream);
+    audioStream.pipe(writeStream);
     this.logger.log(`Saving raw SLIN8 audio to: ${filePath}`);
 
     /**
@@ -174,47 +204,47 @@ export class AudioSocketService implements OnModuleInit {
      * Convert SLIN8 to LINEAR16 using FFmpeg on the conversion clone
      * -----------------------------------------------------------------
      */
-    this.logger.log(
-      'Converting SLIN8 (8kHz PCM) to LINEAR16 (8kHz, 16-bit PCM) using FFmpeg...',
-    );
-    const audioStreamForConversion = new PassThrough();
-    audioStreamForConversion.write(audioStream);
-
-    // Configure Google STT request
-    // LINEAR16 (16-bit PCM) audio at 8kHz sample rate
-    const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitionConfig =
-      {
-        config: {
-          encoding:
-            protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-              .LINEAR16,
-          sampleRateHertz: 8000, // 8kHz sample rate
-          languageCode: 'en-US',
-          enableAutomaticPunctuation: true,
-        },
-        interimResults: true, // Get partial transcriptions in real-time
-      };
-
-    this.logger.log('Transcribing with Google STT...');
-    const recognizeStream = this.speechClient
-      .streamingRecognize(streamingConfig)
-      .on('error', (err) => {
-        this.logger.error(`Google STT Error: ${err.message}`);
-      })
-      .on('data', (data) => {
-        console.log(JSON.stringify(data, null, 2));
-
-        if (data.results?.[0]?.alternatives?.[0]?.transcript) {
-          const transcription = data.results[0].alternatives[0].transcript;
-          this.logger.log(`Live Transcription: ${transcription}`);
-
-          // Send transcription back to the client (Asterisk or WebSocket)
-          // socket.write(`Transcription: ${transcription}\n`);
-        }
-      });
-
-    // Pipe the converted audio stream to the Google STT recognize stream
-    audioStreamForConversion.pipe(recognizeStream);
+    // this.logger.log(
+    //   'Converting SLIN8 (8kHz PCM) to LINEAR16 (8kHz, 16-bit PCM) using FFmpeg...',
+    // );
+    // const audioStreamForConversion = new PassThrough();
+    // audioStreamForConversion.write(audioStream);
+    //
+    // // Configure Google STT request
+    // // LINEAR16 (16-bit PCM) audio at 8kHz sample rate
+    // const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitionConfig =
+    //   {
+    //     config: {
+    //       encoding:
+    //         protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+    //           .LINEAR16,
+    //       sampleRateHertz: 8000, // 8kHz sample rate
+    //       languageCode: 'en-US',
+    //       enableAutomaticPunctuation: true,
+    //     },
+    //     interimResults: true, // Get partial transcriptions in real-time
+    //   };
+    //
+    // this.logger.log('Transcribing with Google STT...');
+    // const recognizeStream = this.speechClient
+    //   .streamingRecognize(streamingConfig)
+    //   .on('error', (err) => {
+    //     this.logger.error(`Google STT Error: ${err.message}`);
+    //   })
+    //   .on('data', (data) => {
+    //     console.log(JSON.stringify(data, null, 2));
+    //
+    //     if (data.results?.[0]?.alternatives?.[0]?.transcript) {
+    //       const transcription = data.results[0].alternatives[0].transcript;
+    //       this.logger.log(`Live Transcription: ${transcription}`);
+    //
+    //       // Send transcription back to the client (Asterisk or WebSocket)
+    //       // socket.write(`Transcription: ${transcription}\n`);
+    //     }
+    //   });
+    //
+    // // Pipe the converted audio stream to the Google STT recognize stream
+    // audioStreamForConversion.pipe(recognizeStream);
   } // end of function
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
