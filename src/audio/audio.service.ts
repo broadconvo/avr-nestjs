@@ -44,6 +44,7 @@ export class AudioSocketService implements OnModuleInit {
 
       res.onData((data) => {
         // Handle incoming audio data and send it back to the client
+        this.streamToGoogleSTT(data);
         res.write(data);
       });
 
@@ -137,9 +138,15 @@ export class AudioSocketService implements OnModuleInit {
     // this.logger.log(`Sent UUID ${uuid} to client.`);
   }
 
-  private streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
+  private streamToGoogleSTT(audioStream: ArrayBuffer) {
     this.logger.log('Starting Google STT Streaming...');
 
+    /**
+     * -----------------------------------------------------------------
+     * Save the original SLIN8 audio to a file for debugging
+     * -----------------------------------------------------------------
+     */
+    // dist/assets/audio/debug_audio.raw
     const filePath = path.join(
       __dirname,
       '..',
@@ -154,37 +161,33 @@ export class AudioSocketService implements OnModuleInit {
     const writeStream = fs.createWriteStream(filePath);
 
     // Create two cloned streams from the original audioStream:
+    this.logger.log('Pipe the original stream into both clones');
     const audioStreamForFile = new PassThrough();
-    const audioStreamForConversion = new PassThrough();
-    // Pipe the original stream into both clones
-    audioStream.pipe(audioStreamForFile);
-    audioStream.pipe(audioStreamForConversion);
+    audioStreamForFile.write(audioStream);
 
     // Pipe one clone to file to save the raw SLIN8 audio
     audioStreamForFile.pipe(writeStream);
     this.logger.log(`Saving raw SLIN8 audio to: ${filePath}`);
 
-    // Convert SLIN8 to LINEAR16 using FFmpeg on the conversion clone
-    const convertedAudioStream = new PassThrough();
-
+    /**
+     * -----------------------------------------------------------------
+     * Convert SLIN8 to LINEAR16 using FFmpeg on the conversion clone
+     * -----------------------------------------------------------------
+     */
     this.logger.log(
       'Converting SLIN8 (8kHz PCM) to LINEAR16 (8kHz, 16-bit PCM) using FFmpeg...',
     );
-    ffmpeg(audioStreamForConversion)
-      .inputFormat('ulaw') // Input is SLIN (Signed Linear PCM)
-      .audioFrequency(8000) // 8kHz sample rate
-      .audioChannels(1) // Mono audio
-      .audioCodec('pcm_s16le') // Convert to 16-bit PCM (LINEAR16)
-      .format('wav') // Output as WAV container (required by Google STT)
-      .on('error', (err) => this.logger.error(`FFmpeg Error: ${err.message}`))
-      .pipe(convertedAudioStream);
+    const audioStreamForConversion = new PassThrough();
+    audioStreamForConversion.write(audioStream);
 
     // Configure Google STT request
+    // LINEAR16 (16-bit PCM) audio at 8kHz sample rate
     const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitionConfig =
       {
         config: {
           encoding:
-            protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.MULAW,
+            protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+              .LINEAR16,
           sampleRateHertz: 8000, // 8kHz sample rate
           languageCode: 'en-US',
           enableAutomaticPunctuation: true,
@@ -200,17 +203,18 @@ export class AudioSocketService implements OnModuleInit {
       })
       .on('data', (data) => {
         console.log(JSON.stringify(data, null, 2));
+
         if (data.results?.[0]?.alternatives?.[0]?.transcript) {
           const transcription = data.results[0].alternatives[0].transcript;
           this.logger.log(`Live Transcription: ${transcription}`);
 
           // Send transcription back to the client (Asterisk or WebSocket)
-          socket.write(`Transcription: ${transcription}\n`);
+          // socket.write(`Transcription: ${transcription}\n`);
         }
       });
 
     // Pipe the converted audio stream to the Google STT recognize stream
-    convertedAudioStream.pipe(recognizeStream);
+    audioStreamForConversion.pipe(recognizeStream);
   } // end of function
 
   private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
