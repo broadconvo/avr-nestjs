@@ -153,38 +153,6 @@ export class AudioSocketService implements OnModuleInit {
   private streamToGoogleSTT(audioStream: PassThrough) {
     this.logger.log('Starting Google STT Streaming...');
 
-    // Configure node-vad (you can choose between NORMAL, AGGRESSIVE, VERY_AGGRESSIVE)
-    const vadStream = VAD.createStream({
-      audioFrequency: 8000,
-      mode: VAD.Mode.NORMAL,
-      debounceTime: 1000, // 1 second of silence before we consider speech ended
-    });
-
-    // Pipe the audio stream into the VAD instance.
-    // The VAD instance is a transform stream that passes through the audio data.
-    audioStream
-      .pipe(vadStream)
-      .on('data', (data: VAD.Result) => {
-        // Handle the VAD results here
-        this.logger.debug(
-          `Time: ${data.time}, Speech State: ${data.speech.state}`,
-        );
-
-        if (data.speech.start) {
-          this.logger.log(`Speech started at ${data.speech.startTime}`);
-        }
-        if (data.speech.end) {
-          this.logger.log(
-            `Speech ended at ${data.time}, duration: ${data.speech.duration}`,
-          );
-        }
-      })
-      .on('end', () => {
-        this.logger.log('Audio stream ended');
-      })
-      .on('error', (err) => {
-        this.logger.error('Error processing audio stream:', err);
-      });
     /**
      * -----------------------------------------------------------------
      * Save the original SLIN8 audio to a file for debugging
@@ -201,8 +169,66 @@ export class AudioSocketService implements OnModuleInit {
     // Ensure the directory exists before writing
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const writeStream = fs.createWriteStream(filePath);
-    audioStream.pipe(writeStream);
     this.logger.log(`Saving raw SLIN8 audio to: ${filePath}`);
+
+    /**
+     * Voice Activity Detection
+     */
+    // Configure node-vad (you can choose between NORMAL, AGGRESSIVE, VERY_AGGRESSIVE)
+    const vadStream = VAD.createStream({
+      audioFrequency: 8000,
+      mode: VAD.Mode.NORMAL,
+      debounceTime: 1000, // 1 second of silence before we consider speech ended
+    });
+
+    let isSpeaking = false; // Track whether speech is ongoing
+    let silenceTimeout: NodeJS.Timeout | null = null;
+
+    // Pipe the audio stream into the VAD instance.
+    // The VAD instance is a transform stream that passes through the audio data.
+    audioStream.pipe(vadStream);
+    vadStream
+      .on('data', (data: VAD.Result) => {
+        if (data.speech.start) {
+          if (!isSpeaking) {
+            this.logger.log(`Speech started, writing to file.`);
+            isSpeaking = true;
+
+            // ✅ Resume writing if speech resumes
+            audioStream.pipe(writeStream);
+          }
+
+          // ✅ Clear any existing silence timeout to prevent premature closing
+          if (silenceTimeout) {
+            clearTimeout(silenceTimeout);
+            silenceTimeout = null;
+          }
+        } // end of speaking
+
+        if (data.speech.end) {
+          this.logger.log('Silence detected.');
+
+          // ✅ Delay closing the stream to prevent cutting off speech
+          silenceTimeout = setTimeout(() => {
+            if (isSpeaking) {
+              this.logger.log('Stopping audio recording due to silence.');
+              isSpeaking = false;
+
+              // ✅ Unpipe the stream and close the file
+              audioStream.unpipe(writeStream);
+              writeStream.end();
+            }
+          }, 2000); // 2 seconds of silence before stopping
+        } // end of silence
+      })
+      .on('end', () => {
+        writeStream.end();
+        this.logger.log('Audio stream ended');
+      })
+      .on('error', (err) => {
+        writeStream.end();
+        this.logger.error('Error processing audio stream:', err);
+      });
 
     /**
      * -----------------------------------------------------------------
