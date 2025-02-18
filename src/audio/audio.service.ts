@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
+import { Socket } from 'net'; // Import Server and Socket from 'net'
 import { v4 as uuidv4 } from 'uuid';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -14,12 +14,9 @@ import * as VAD from 'node-vad';
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
   private readonly logger = new Logger(AudioSocketService.name);
-  private server: Server;
-  private connections: Map<string, Socket> = new Map(); // Store connections by UUID
   private readonly port = 9093; // TCP Port
   private openai: any;
   private speechClient: SpeechClient;
-  private vadInstance: VAD;
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
@@ -43,6 +40,7 @@ export class AudioSocketService implements OnModuleInit {
       'greetings.wav',
     );
 
+    let isPaused: boolean = true;
     const audioStream = new PassThrough();
     const audioSocket = new AudioSocket();
 
@@ -50,6 +48,8 @@ export class AudioSocketService implements OnModuleInit {
       this.logger.log('new connection from:', req.ref);
 
       res.onData((data) => {
+        if (isPaused) return;
+
         audioStream.write(data);
 
         // Handle incoming audio data and send it back to the client
@@ -71,6 +71,7 @@ export class AudioSocketService implements OnModuleInit {
       // plays SLIN16 4kHz audio mono channel
       // Utility for playing audio files
       await res.play(loadingAudioPath);
+      isPaused = false;
     });
 
     audioSocket.listen(this.port, () => {
