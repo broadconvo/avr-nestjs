@@ -181,27 +181,4 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.error('Error processing audio stream:', err);
       });
   }
-
-  // Other methods (unchanged for this purpose)
-  private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const inputStream = new PassThrough();
-      const outputStream = new PassThrough();
-      const chunks: Buffer[] = [];
-
-      inputStream.end(slin16Buffer);
-
-      ffmpeg(inputStream)
-        .inputFormat('s16le')
-        .audioFrequency(16000)
-        .audioChannels(1)
-        .audioCodec('pcm_s16le')
-        .format('wav')
-        .on('error', reject)
-        .on('end', () => resolve(Buffer.concat(chunks)))
-        .pipe(outputStream);
-
-      outputStream.on('data', (chunk) => chunks.push(chunk));
-    });
-  }
 }
