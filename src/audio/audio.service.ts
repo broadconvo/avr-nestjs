@@ -1,9 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Socket } from 'net';
-import { v4 as uuidv4 } from 'uuid';
-import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
-import * as ffmpeg from 'fluent-ffmpeg';
 import { PassThrough } from 'stream';
 import { protos, SpeechClient } from '@google-cloud/speech';
 import * as fs from 'node:fs';
