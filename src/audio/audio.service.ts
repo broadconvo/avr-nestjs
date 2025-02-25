@@ -21,6 +21,19 @@ export class AudioSocketService implements OnModuleInit {
   private assistantId = 'asst_yGxTmokn0m8LMmL5el0Z8DXh'; // Your Assistant ID
   private textToSpeechClient: TextToSpeechClient;
   private res: AudioStream;
+  private streamingConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
+    {
+      config: {
+        encoding:
+          speechProtos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16,
+        sampleRateHertz: 8000,
+        languageCode: 'en-US',
+        model: 'phone_call', // Optimized for phone call audio
+        useEnhanced: true, // Enables enhanced model for better noise robustness
+      },
+      interimResults: false, // Set to true if you want interim results
+    };
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
@@ -63,7 +76,7 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       // Assuming SLIN16 at 8000 Hz based on STT config
-      await res.play(greetingsAudioPath);
+      setTimeout(async () => await res.play(greetingsAudioPath), 500);
 
       this.res = res;
       this.streamToGoogleSTT(audioStream);
@@ -90,108 +103,79 @@ export class AudioSocketService implements OnModuleInit {
     audioStream.pipe(writeStream);
 
     // VAD configuration
-    const debounceTime = 300; // 0.5 seconds of silence to detect speech end
     const vadStream = VAD.createStream({
       audioFrequency: 8000,
-      mode: VAD.Mode.NORMAL,
-      debounceTime: debounceTime,
+      mode: VAD.Mode.VERY_AGGRESSIVE, // More selective, reduces false positives from noise
+      debounceTime: 200, // Reduced for faster response, adjust based on testing
     });
-
-    let isSpeaking = false;
-    let currentSegmentStream: PassThrough | null = null;
-    let audioBuffer: Buffer[] = [];
 
     audioStream.pipe(vadStream);
 
-    audioStream.on('finish', () => {
-      vadStream.end();
+    let isSpeaking = false;
+    let sttStream: any = null;
+    let transcription = '';
+
+    vadStream.on('data', (data: VAD.Result) => {
+      if (data.speech.start && !isSpeaking) {
+        isSpeaking = true;
+        transcription = '';
+
+        sttStream = this.speechClient
+          .streamingRecognize(this.streamingConfig)
+          .on('data', (response) => {
+            console.log(response);
+            if (response.results?.[0]?.isFinal) {
+              transcription = response.results[0].alternatives[0].transcript;
+              this.logger.log(`Final Transcription: ${transcription}`);
+              this.processTranscription(transcription);
+            }
+          })
+          .on('error', (err) => {
+            this.logger.error(`STT Error: ${err.message}`);
+          })
+          .on('end', () => {
+            this.logger.log('Speech-To-Text stream ended');
+          });
+
+        // Write the first audio chunk
+        this.logger.log('Writing audio chunk to stream for STT');
+        sttStream.write(data.audioData);
+      } else if (isSpeaking && data.speech.state) {
+        this.logger.log('Still Speaking');
+        // Continue writing audio chunks during speech
+        sttStream.write(data.audioData);
+      } else if (data.speech.end && isSpeaking) {
+        this.logger.log('End Speaking');
+        isSpeaking = false;
+        sttStream.end();
+      }
     });
 
-    vadStream
-      .on('data', (data: VAD.Result) => {
-        if (data.speech.start) {
-          if (!isSpeaking) {
-            isSpeaking = true;
-            currentSegmentStream = new PassThrough();
-            audioBuffer = [];
-            audioStream.pipe(currentSegmentStream);
-            currentSegmentStream.on('data', (chunk) => {
-              audioBuffer.push(chunk);
-            });
-          }
-        }
+    vadStream.on('end', () => {
+      sttStream.end();
+      writeStream.end();
+      this.logger.log('VAD stream ended');
+    });
 
-        if (data.speech.end) {
-          if (isSpeaking) {
-            isSpeaking = false;
+    vadStream.on('error', (err) => {
+      writeStream.end();
+      this.logger.error('VAD error:', err);
+    });
 
-            if (currentSegmentStream) {
-              audioStream.unpipe(currentSegmentStream);
-              currentSegmentStream.end();
+    audioStream.on('finish', () => {
+      vadStream.end();
+      this.logger.log('Audio stream ended');
+    });
+  }
 
-              const audioSegment = Buffer.concat(audioBuffer);
-
-              const streamingConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
-                {
-                  config: {
-                    encoding:
-                      speechProtos.google.cloud.speech.v1.RecognitionConfig
-                        .AudioEncoding.LINEAR16,
-                    sampleRateHertz: 8000,
-                    languageCode: 'en-US',
-                  },
-                  interimResults: false,
-                };
-
-              let transcription = '';
-              const speechToTextStream = this.speechClient
-                .streamingRecognize(streamingConfig)
-                .on('data', async (data) => {
-                  if (data.results?.[0]?.isFinal) {
-                    transcription = data.results[0].alternatives[0].transcript;
-                    this.logger.log(`Full Transcription: ${transcription}`);
-
-                    if (transcription !== '') {
-                      // Send transcription to OpenAI Assistant
-                      const assistantResponse =
-                        await this.sendToAssistant(transcription);
-                      this.logger.log(
-                        `Assistant Response: ${assistantResponse}`,
-                      );
-
-                      // Add TTS conversion and playback
-                      await this.synthesizeAndPlay(assistantResponse);
-                    } else {
-                      this.logger.log('Empty transcription');
-                    }
-                  }
-                })
-                .on('end', () => {
-                  if (transcription !== '') {
-                    this.logger.log('Google Speech stream ended for segment');
-                  }
-                })
-                .on('error', (err) => {
-                  this.logger.error(`Google Speech Error: ${err.message}`);
-                });
-
-              speechToTextStream.write(audioSegment);
-              speechToTextStream.end();
-
-              currentSegmentStream = null;
-              audioBuffer = [];
-            }
-          }
-        }
-      })
-      .on('end', () => {
-        writeStream.end();
-        this.logger.log('Audio stream ended');
-      })
-      .on('error', (err) => {
-        writeStream.end();
-        this.logger.error('Error processing audio stream:', err);
-      });
+  private async processTranscription(transcription: string) {
+    if (transcription.trim() !== '') {
+      const assistantResponse = await this.sendToAssistant(transcription);
+      this.logger.log(`Assistant Response: ${assistantResponse}`);
+      await this.synthesizeAndPlay(assistantResponse);
+    } else {
+      this.logger.log('Empty transcription');
+    }
   }
 
   private async sendToAssistant(transcription: string): Promise<string> {
@@ -204,7 +188,7 @@ export class AudioSocketService implements OnModuleInit {
           message: transcription,
           language: 'English',
           uniqueId: '1734315099.149537', // from pbx - search CDR
-          rachelId: '86034909', // under rachel_tenant
+          rachelId: 'aaae606e-0585-40c2-afbc-ff501437c1cf', // under rachel_tenant
         })
         .then((res) => {
           console.log(res.data);
