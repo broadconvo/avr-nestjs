@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import OpenAI from 'openai'; // Import the official OpenAI library
 import { PassThrough } from 'stream';
 import { protos as speechProtos, SpeechClient } from '@google-cloud/speech';
 import {
@@ -16,12 +15,10 @@ import axios from 'axios';
 export class AudioSocketService implements OnModuleInit {
   private readonly logger = new Logger(AudioSocketService.name);
   private readonly port = 9093; // TCP Port
-  private openaiAssistant: OpenAI; // For Assistants API
   private speechClient: SpeechClient;
-  private assistantId = 'asst_yGxTmokn0m8LMmL5el0Z8DXh'; // Your Assistant ID
   private textToSpeechClient: TextToSpeechClient;
   private res: AudioStream;
-  private streamingConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
+  private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
     {
       config: {
         encoding:
@@ -34,13 +31,20 @@ export class AudioSocketService implements OnModuleInit {
       },
       interimResults: false, // Set to true if you want interim results
     };
+  private textToSpeechConfig = {
+    voice: { languageCode: 'en-US', ssmlGender: 'FEMALE' as const },
+    audioConfig: {
+      audioEncoding:
+        textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
+      sampleRateHertz: 8000,
+    },
+  };
+  private isPlaying = false; // Tracks if audio is currently playing
+  private playbackTimeoutId: NodeJS.Timeout | null = null; // Tracks the active setTimeout
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
     this.textToSpeechClient = new TextToSpeechClient();
-    this.openaiAssistant = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
     this.startServer();
   }
 
@@ -56,7 +60,7 @@ export class AudioSocketService implements OnModuleInit {
 
     const audioSocket = new AudioSocket();
 
-    audioSocket.onConnection(async (req, res) => {
+    audioSocket.onConnection((req, res) => {
       this.logger.log('new connection from:', req.ref);
 
       const audioStream = new PassThrough();
@@ -106,7 +110,7 @@ export class AudioSocketService implements OnModuleInit {
     const vadStream = VAD.createStream({
       audioFrequency: 8000,
       mode: VAD.Mode.VERY_AGGRESSIVE, // More selective, reduces false positives from noise
-      debounceTime: 200, // Reduced for faster response, adjust based on testing
+      debounceTime: 1000, // Reduced for faster response, adjust based on testing
     });
 
     audioStream.pipe(vadStream);
@@ -121,7 +125,7 @@ export class AudioSocketService implements OnModuleInit {
         transcription = '';
 
         sttStream = this.speechClient
-          .streamingRecognize(this.streamingConfig)
+          .streamingRecognize(this.speechToTextConfig)
           .on('data', (response) => {
             console.log(response);
             if (response.results?.[0]?.isFinal) {
@@ -211,16 +215,15 @@ export class AudioSocketService implements OnModuleInit {
       return;
     }
 
+    // Stop any ongoing playback
+    if (this.isPlaying && this.playbackTimeoutId) {
+      clearTimeout(this.playbackTimeoutId); // Cancel the current frame loop
+      this.isPlaying = false;
+      this.logger.log('Stopped previous playback');
+    }
+
     // Configure the TTS request for SLIN16 at 8 kHz
-    const request = {
-      input: { text },
-      voice: { languageCode: 'en-US', ssmlGender: 'FEMALE' as const },
-      audioConfig: {
-        audioEncoding:
-          textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
-        sampleRateHertz: 8000,
-      },
-    };
+    const request = { ...this.textToSpeechConfig, input: { text } };
 
     try {
       // Synthesize speech
@@ -237,25 +240,30 @@ export class AudioSocketService implements OnModuleInit {
       const frameSize = 320;
       let offset = 0;
 
+      this.isPlaying = true; // Mark as playing
+
       // Simulate streaming by sending frames
       const sendFrame = () => {
-        if (offset >= audioBuffer.length || !this.res) {
+        if (offset >= audioBuffer.length || !this.res || !this.isPlaying) {
+          this.isPlaying = false;
+          this.playbackTimeoutId = null;
           this.logger.log('Finished streaming synthesized audio');
           return;
         }
 
-        const frame = audioBuffer.slice(offset, offset + frameSize);
+        const frame = audioBuffer.subarray(offset, offset + frameSize);
         offset += frameSize;
 
         this.res.write(frame);
 
-        // Send the next frame after 20ms to simulate real-time playback
-        setTimeout(sendFrame, 20);
+        this.playbackTimeoutId = setTimeout(sendFrame, 20); // Store timeout ID
       };
 
       // Start sending frames
       sendFrame();
     } catch (error) {
+      this.isPlaying = false;
+      this.playbackTimeoutId = null;
       this.logger.error(
         `Error synthesizing or streaming speech: ${error.message}`,
       );
