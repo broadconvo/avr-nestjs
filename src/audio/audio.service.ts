@@ -184,7 +184,7 @@ export class AudioSocketService implements OnModuleInit {
       // Create a new thread
       let response: string = '';
       await axios
-        .post('https://dev.roborachel.com/voice/v2/query', {
+        .post('https://dev.roborachel.com/voice/query', {
           message: transcription,
           language: 'English',
           uniqueId: '1734315099.149537', // from pbx - search CDR
