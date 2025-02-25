@@ -98,18 +98,6 @@ export class AudioSocketService implements OnModuleInit {
   private streamToGoogleSTT(audioStream: PassThrough) {
     this.logger.log('Starting Google STT Streaming...');
 
-    // Save raw audio for debugging (optional)
-    const filePath = path.join(
-      __dirname,
-      '..',
-      'assets',
-      'audio',
-      'debug_audio.raw',
-    );
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const writeStream = fs.createWriteStream(filePath);
-    audioStream.pipe(writeStream);
-
     // VAD configuration
     const vadStream = VAD.createStream({
       audioFrequency: 8000,
@@ -161,12 +149,11 @@ export class AudioSocketService implements OnModuleInit {
 
     vadStream.on('end', () => {
       sttStream.end();
-      writeStream.end();
       this.logger.log('VAD stream ended');
     });
 
     vadStream.on('error', (err) => {
-      writeStream.end();
+      sttStream.end();
       this.logger.error('VAD error:', err);
     });
 
