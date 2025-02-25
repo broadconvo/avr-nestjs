@@ -13,18 +13,19 @@ import axios from 'axios';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
+  private readonly sampleRateHertz = 8000;
   private readonly logger = new Logger(AudioSocketService.name);
   private readonly port = 9093; // TCP Port
   private speechClient: SpeechClient;
   private textToSpeechClient: TextToSpeechClient;
-  private res: AudioStream;
+  private outboundStream: AudioStream;
   private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
     {
       config: {
         encoding:
           speechProtos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
             .LINEAR16,
-        sampleRateHertz: 8000,
+        sampleRateHertz: this.sampleRateHertz,
         languageCode: 'en-US',
         model: 'phone_call', // Optimized for phone call audio
         useEnhanced: true, // Enables enhanced model for better noise robustness
@@ -36,7 +37,7 @@ export class AudioSocketService implements OnModuleInit {
     audioConfig: {
       audioEncoding:
         textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
-      sampleRateHertz: 8000,
+      sampleRateHertz: this.sampleRateHertz,
     },
   };
   private isPlaying = false; // Tracks if audio is currently playing
@@ -60,34 +61,37 @@ export class AudioSocketService implements OnModuleInit {
 
     const audioSocket = new AudioSocket();
 
-    audioSocket.onConnection((req, res) => {
+    audioSocket.onConnection((req, outboundStream) => {
       this.logger.log('new connection from:', req.ref);
 
       const audioStream = new PassThrough();
 
-      res.onData((data) => {
+      outboundStream.onData((data) => {
         audioStream.write(data);
       });
 
-      res.onClose(() => {
+      outboundStream.onClose(() => {
         audioStream.end();
-        this.logger.log('connection closed');
+        this.logger.log('AudioSocket closed');
       });
 
-      res.onError((err) => {
+      outboundStream.onError((err) => {
         audioStream.end();
-        this.logger.error('connection error:', err);
+        this.logger.error('AudioSocket error:', err);
       });
 
       // Assuming SLIN16 at 8000 Hz based on STT config
-      setTimeout(async () => await res.play(greetingsAudioPath), 500);
+      setTimeout(
+        async () => await outboundStream.play(greetingsAudioPath),
+        500,
+      );
 
-      this.res = res;
+      this.outboundStream = outboundStream;
       this.streamToGoogleSTT(audioStream);
     });
 
     audioSocket.listen(this.port, () => {
-      this.logger.log(`server listening on port ${this.port}`);
+      this.logger.log(`AudioSocket listening on port ${this.port}`);
     });
   }
 
@@ -174,11 +178,22 @@ export class AudioSocketService implements OnModuleInit {
 
   private async processTranscription(transcription: string) {
     if (transcription.trim() !== '') {
+      this.interruptPlayback(); // Stop any ongoing playback
+
       const assistantResponse = await this.sendToAssistant(transcription);
       this.logger.log(`Assistant Response: ${assistantResponse}`);
       await this.synthesizeAndPlay(assistantResponse);
     } else {
       this.logger.log('Empty transcription');
+    }
+  }
+
+  private interruptPlayback() {
+    // Stop any ongoing playback
+    if (this.isPlaying && this.playbackTimeoutId) {
+      clearTimeout(this.playbackTimeoutId); // Cancel the current frame loop
+      this.isPlaying = false;
+      this.logger.log('Stopped previous playback');
     }
   }
 
@@ -209,17 +224,10 @@ export class AudioSocketService implements OnModuleInit {
   private async synthesizeAndPlay(text: string) {
     this.logger.log(`Synthesizing speech: ${text}`);
 
-    // Ensure this.res is available
-    if (!this.res) {
-      this.logger.error('AudioStream (this.res) is not initialized');
+    // Ensure this.outboundStream is available
+    if (!this.outboundStream) {
+      this.logger.error('AudioStream (this.outboundStream) is not initialized');
       return;
-    }
-
-    // Stop any ongoing playback
-    if (this.isPlaying && this.playbackTimeoutId) {
-      clearTimeout(this.playbackTimeoutId); // Cancel the current frame loop
-      this.isPlaying = false;
-      this.logger.log('Stopped previous playback');
     }
 
     // Configure the TTS request for SLIN16 at 8 kHz
@@ -244,7 +252,7 @@ export class AudioSocketService implements OnModuleInit {
 
       // Simulate streaming by sending frames
       const sendFrame = () => {
-        if (offset >= audioBuffer.length || !this.res || !this.isPlaying) {
+        if (offset >= audioBuffer.length || !this.outboundStream || !this.isPlaying) {
           this.isPlaying = false;
           this.playbackTimeoutId = null;
           this.logger.log('Finished streaming synthesized audio');
@@ -254,7 +262,7 @@ export class AudioSocketService implements OnModuleInit {
         const frame = audioBuffer.subarray(offset, offset + frameSize);
         offset += frameSize;
 
-        this.res.write(frame);
+        this.outboundStream.write(frame);
 
         this.playbackTimeoutId = setTimeout(sendFrame, 20); // Store timeout ID
       };
