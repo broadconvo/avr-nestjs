@@ -119,7 +119,6 @@ export class AudioSocketService implements OnModuleInit {
         sttStream = this.speechClient
           .streamingRecognize(this.speechToTextConfig)
           .on('data', (response) => {
-            console.log(response);
             if (response.results?.[0]?.isFinal) {
               transcription = response.results[0].alternatives[0].transcript;
               this.logger.log(`Final Transcription: ${transcription}`);
@@ -127,7 +126,7 @@ export class AudioSocketService implements OnModuleInit {
             }
           })
           .on('error', (err) => {
-            this.logger.error(`STT Error: ${err.message}`);
+            this.logger.error(`Speech-To-Text stream Error: ${err.message}`);
           })
           .on('end', () => {
             this.logger.log('Speech-To-Text stream ended');
@@ -165,6 +164,7 @@ export class AudioSocketService implements OnModuleInit {
 
   private async processTranscription(transcription: string) {
     if (transcription.trim() !== '') {
+      console.log(transcription);
       this.interruptPlayback(); // Stop any ongoing playback
 
       const assistantResponse = await this.sendToAssistant(transcription);
@@ -197,7 +197,7 @@ export class AudioSocketService implements OnModuleInit {
           rachelId: 'aaae606e-0585-40c2-afbc-ff501437c1cf', // under rachel_tenant
         })
         .then((res) => {
-          console.log(res.data);
+          console.log(res.data.response);
           response = res.data.response;
         });
 
