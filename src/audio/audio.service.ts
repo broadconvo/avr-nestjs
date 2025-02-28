@@ -42,6 +42,8 @@ export class AudioSocketService implements OnModuleInit {
   };
   private isPlaying = false; // Tracks if audio is currently playing
   private playbackTimeoutId: NodeJS.Timeout | null = null; // Tracks the active setTimeout
+  private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
+  private readonly greetingsAudio = this.getAudioAsset('greetings.wav');
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
@@ -50,15 +52,6 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private startServer() {
-    const greetingsAudioPath = path.join(
-      __dirname,
-      '..',
-      '..',
-      'assets',
-      'audio',
-      'greetings.wav',
-    );
-
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection((req, outboundStream) => {
@@ -82,7 +75,7 @@ export class AudioSocketService implements OnModuleInit {
 
       // Assuming SLIN16 at 8000 Hz based on STT config
       setTimeout(
-        async () => await outboundStream.play(greetingsAudioPath),
+        async () => await outboundStream.play(this.greetingsAudio),
         500,
       );
 
@@ -100,9 +93,9 @@ export class AudioSocketService implements OnModuleInit {
 
     // VAD configuration
     const vadStream = VAD.createStream({
-      audioFrequency: 8000,
+      audioFrequency: this.sampleRateHertz,
       mode: VAD.Mode.VERY_AGGRESSIVE, // More selective, reduces false positives from noise
-      debounceTime: 1000, // Reduced for faster response, adjust based on testing
+      debounceTime: 200, // Reduced for faster response, adjust based on testing
     });
 
     audioStream.pipe(vadStream);
@@ -166,9 +159,9 @@ export class AudioSocketService implements OnModuleInit {
     if (transcription.trim() !== '') {
       console.log(transcription);
       this.interruptPlayback(); // Stop any ongoing playback
+      // await this.outboundStream.play(this.backchannelAudio); // Play backchannel audio
 
       const assistantResponse = await this.sendToAssistant(transcription);
-      this.logger.log(`Assistant Response: ${assistantResponse}`);
       await this.synthesizeAndPlay(assistantResponse);
     } else {
       this.logger.log('Empty transcription');
@@ -239,7 +232,11 @@ export class AudioSocketService implements OnModuleInit {
 
       // Simulate streaming by sending frames
       const sendFrame = () => {
-        if (offset >= audioBuffer.length || !this.outboundStream || !this.isPlaying) {
+        if (
+          offset >= audioBuffer.length ||
+          !this.outboundStream ||
+          !this.isPlaying
+        ) {
           this.isPlaying = false;
           this.playbackTimeoutId = null;
           this.logger.log('Finished streaming synthesized audio');
@@ -263,5 +260,9 @@ export class AudioSocketService implements OnModuleInit {
         `Error synthesizing or streaming speech: ${error.message}`,
       );
     }
+  }
+
+  private getAudioAsset(filename: string) {
+    return path.join(__dirname, '..', '..', 'assets', 'audio', filename);
   }
 }
