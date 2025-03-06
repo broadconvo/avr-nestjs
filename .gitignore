@@ -89,4 +89,5 @@ typings/
 .idea
 .DS_store
 .env
+.env.*
 dist
