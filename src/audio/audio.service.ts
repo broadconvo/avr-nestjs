@@ -10,40 +10,83 @@ import * as path from 'node:path';
 import { AudioSocket, AudioStream } from '@fonoster/streams';
 import * as VAD from 'node-vad';
 import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
   private readonly sampleRateHertz = 8000;
   private readonly logger = new Logger(AudioSocketService.name);
-  private readonly port = 9093; // TCP Port
+  private readonly port: number; // TCP Port
+  private language: string;
   private speechClient: SpeechClient;
   private textToSpeechClient: TextToSpeechClient;
   private outboundStream: AudioStream;
-  private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig =
-    {
+  private isPlaying = false; // Tracks if audio is currently playing
+  private playbackTimeoutId: NodeJS.Timeout | null = null; // Tracks the active setTimeout
+  private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
+  private readonly greetingsAudio: string;
+  private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig;
+  private readonly textToSpeechConfig;
+  private referenceId: string;
+
+  constructor(private readonly configService: ConfigService) {
+    const languageSpeechText = this.configService.get<string>(
+      'LANGUAGE_SPEECH_TO_TEXT',
+      'en-us',
+    );
+    const languageTextSpeech = this.configService.get<string>(
+      'LANGUAGE_TEXT_TO_SPEECH',
+      'en-us',
+    );
+    const languageTextSpeechName = this.configService.get<string>(
+      'LANGUAGE_TEXT_TO_SPEECH_NAME',
+      'en-US-Standard-F',
+    );
+    const languageModel = this.configService.get<string>(
+      'LANGUAGE_MODEL',
+      'phone_call',
+    );
+
+    this.port = this.configService.get<number>('AUDIOSOCKET_PORT', 9093); // Default to 3001 if not set
+
+    this.speechToTextConfig = {
       config: {
         encoding:
           speechProtos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
             .LINEAR16,
         sampleRateHertz: this.sampleRateHertz,
-        languageCode: 'en-US',
-        model: 'phone_call', // Optimized for phone call audio
+        languageCode: languageSpeechText,
+        model: languageModel, // Optimized for phone call audio
         useEnhanced: true, // Enables enhanced model for better noise robustness
       },
       interimResults: false, // Set to true if you want interim results
     };
-  private textToSpeechConfig = {
-    voice: { languageCode: 'en-US', ssmlGender: 'FEMALE' as const },
-    audioConfig: {
-      audioEncoding:
-        textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
-      sampleRateHertz: this.sampleRateHertz,
-    },
-  };
-  private isPlaying = false; // Tracks if audio is currently playing
-  private playbackTimeoutId: NodeJS.Timeout | null = null; // Tracks the active setTimeout
-  private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
-  private readonly greetingsAudio = this.getAudioAsset('greetings.wav');
+
+    this.textToSpeechConfig = {
+      voice: {
+        languageCode: languageTextSpeech,
+        name: languageTextSpeechName,
+        ssmlGender: 'FEMALE' as const,
+      },
+      audioConfig: {
+        audioEncoding:
+          textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
+        sampleRateHertz: this.sampleRateHertz,
+        pitch: 0,
+        speakingRate: 1.19,
+      },
+    };
+
+    this.greetingsAudio = this.configService.get<string>(
+      'AUDIO_GREETINGS',
+      'Thank you for calling Mustard, how can I help you?',
+    );
+
+    this.language = this.configService.get<string>(
+      'LANGUAGE_RACHEL',
+      'English',
+    );
+  }
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
@@ -55,7 +98,8 @@ export class AudioSocketService implements OnModuleInit {
     const audioSocket = new AudioSocket();
 
     audioSocket.onConnection((req, outboundStream) => {
-      this.logger.log('new connection from:', req.ref);
+      this.logger.log('new connection from:', req);
+      this.referenceId = req.ref;
 
       const audioStream = new PassThrough();
 
@@ -63,7 +107,8 @@ export class AudioSocketService implements OnModuleInit {
         audioStream.write(data);
       });
 
-      outboundStream.onClose(() => {
+      outboundStream.onClose(async () => {
+        await this.synthesizeAndPlay('Goodbye!');
         audioStream.end();
         this.logger.log('AudioSocket closed');
       });
@@ -75,7 +120,7 @@ export class AudioSocketService implements OnModuleInit {
 
       // Assuming SLIN16 at 8000 Hz based on STT config
       setTimeout(
-        async () => await outboundStream.play(this.greetingsAudio),
+        async () => await this.synthesizeAndPlay(this.greetingsAudio),
         500,
       );
 
@@ -140,7 +185,7 @@ export class AudioSocketService implements OnModuleInit {
     });
 
     vadStream.on('end', () => {
-      sttStream.end();
+      sttStream?.end();
       this.logger.log('VAD stream ended');
     });
 
@@ -179,15 +224,18 @@ export class AudioSocketService implements OnModuleInit {
 
   private async sendToAssistant(transcription: string): Promise<string> {
     try {
+      this.interruptPlayback(); // Stop any ongoing playback
       this.logger.log(`Sending to OpenAI Assistant: ${transcription}`);
       // Create a new thread
       let response: string = '';
       await axios
-        .post('https://dev.roborachel.com/voice/query', {
+        .post('https://dev.roborachel.com/voice/v2/query', {
           message: transcription,
-          language: 'English',
-          uniqueId: '1734315099.149537', // from pbx - search CDR
-          rachelId: 'aaae606e-0585-40c2-afbc-ff501437c1cf', // under rachel_tenant
+          language: this.language,
+          uniqueId: this.referenceId, // from pbx - search CDR
+          // assistant or customer service agent
+          rachelId: '86034909', // under rachel_tenant
+          tenantId: '34975934',
         })
         .then((res) => {
           console.log(res.data.response);
