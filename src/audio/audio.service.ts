@@ -139,8 +139,9 @@ export class AudioSocketService implements OnModuleInit {
     // VAD configuration
     const vadStream = VAD.createStream({
       audioFrequency: this.sampleRateHertz,
-      mode: VAD.Mode.VERY_AGGRESSIVE, // More selective, reduces false positives from noise
+      mode: VAD.Mode.NORMAL, // More selective, reduces false positives from noise
       debounceTime: 200, // Reduced for faster response, adjust based on testing
+      silenceThreshold: 0.8, // Higher threshold to filter out background noise
     });
 
     audioStream.pipe(vadStream);
