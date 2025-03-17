@@ -11,23 +11,21 @@ import { AudioSocket, AudioStream } from '@fonoster/streams';
 import * as VAD from 'node-vad';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { CallSession } from './call-session';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
+  private activeCalls: Map<string, CallSession> = new Map();
   private readonly sampleRateHertz = 8000;
   private readonly logger = new Logger(AudioSocketService.name);
   private readonly port: number; // TCP Port
   private language: string;
   private speechClient: SpeechClient;
   private textToSpeechClient: TextToSpeechClient;
-  private outboundStream: AudioStream;
-  private isPlaying = false; // Tracks if audio is currently playing
-  private playbackTimeoutId: NodeJS.Timeout | null = null; // Tracks the active setTimeout
   private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
   private readonly greetingsAudio: string;
   private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig;
   private readonly textToSpeechConfig;
-  private referenceId: string;
 
   constructor(private readonly configService: ConfigService) {
     const languageSpeechText = this.configService.get<string>(
@@ -99,7 +97,15 @@ export class AudioSocketService implements OnModuleInit {
 
     audioSocket.onConnection((req, outboundStream) => {
       this.logger.log('new connection from:', req);
-      this.referenceId = req.ref;
+      const referenceId = req.ref;
+
+      // Create a new call session for this connection
+      const callSession = new CallSession(outboundStream, referenceId);
+      // Store the session with a unique key (referenceId or another unique identifier)
+      this.activeCalls.set(referenceId, callSession);
+      this.logger.log(
+        `[${callSession.referenceId}] Active calls: ${this.activeCalls.size}`,
+      );
 
       const audioStream = new PassThrough();
 
@@ -108,24 +114,38 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       outboundStream.onClose(async () => {
-        await this.synthesizeAndPlay('Goodbye!');
+        // Get the call session before removing it
+        const session = this.activeCalls.get(referenceId);
+        if (session) {
+          await this.synthesizeAndPlay(callSession, 'Goodbye!');
+          // Remove the call from our map when it is closed
+          this.activeCalls.delete(referenceId);
+          this.logger.log(
+            `[${callSession.referenceId}] Callended. Active calls: ${this.activeCalls.size}`,
+          );
+        }
         audioStream.end();
-        this.logger.log('AudioSocket closed');
+        this.logger.log(`[${callSession.referenceId}] AudioSocket closed`);
       });
 
       outboundStream.onError((err) => {
+        // Clean up on error too
+        this.activeCalls.delete(referenceId);
         audioStream.end();
-        this.logger.error('AudioSocket error:', err);
+        this.logger.error(
+          `[${callSession.referenceId}] AudioSocket error:`,
+          err,
+        );
       });
 
       // Assuming SLIN16 at 8000 Hz based on STT config
       setTimeout(
-        async () => await this.synthesizeAndPlay(this.greetingsAudio),
+        async () =>
+          await this.synthesizeAndPlay(callSession, this.greetingsAudio),
         500,
       );
 
-      this.outboundStream = outboundStream;
-      this.streamToGoogleSTT(audioStream);
+      this.streamToGoogleSTT(audioStream, callSession);
     });
 
     audioSocket.listen(this.port, () => {
@@ -133,8 +153,13 @@ export class AudioSocketService implements OnModuleInit {
     });
   }
 
-  private streamToGoogleSTT(audioStream: PassThrough) {
-    this.logger.log('Starting Google STT Streaming...');
+  private streamToGoogleSTT(
+    audioStream: PassThrough,
+    callSession: CallSession,
+  ) {
+    this.logger.log(
+      `[${callSession.referenceId}] Starting Google STT Streaming `,
+    );
 
     // VAD configuration
     const vadStream = VAD.createStream({
@@ -160,26 +185,31 @@ export class AudioSocketService implements OnModuleInit {
           .on('data', (response) => {
             if (response.results?.[0]?.isFinal) {
               transcription = response.results[0].alternatives[0].transcript;
-              this.logger.log(`Final Transcription: ${transcription}`);
-              this.processTranscription(transcription);
+              this.processTranscription(transcription, callSession);
             }
           })
           .on('error', (err) => {
-            this.logger.error(`Speech-To-Text stream Error: ${err.message}`);
+            this.logger.error(
+              `[${callSession.referenceId}] Speech-To-Text stream Error: ${err.message}`,
+            );
           })
           .on('end', () => {
-            this.logger.log('Speech-To-Text stream ended');
+            this.logger.log(
+              `[${callSession.referenceId}] Speech-To-Text stream ended`,
+            );
           });
 
         // Write the first audio chunk
-        this.logger.log('Writing audio chunk to stream for STT');
+        this.logger.log(
+          `[${callSession.referenceId}] Writing audio chunk to stream for STT`,
+        );
         sttStream.write(data.audioData);
       } else if (isSpeaking && data.speech.state) {
-        this.logger.log('Still Speaking');
+        this.logger.log(`[${callSession.referenceId}] Still Speaking`);
         // Continue writing audio chunks during speech
         sttStream.write(data.audioData);
       } else if (data.speech.end && isSpeaking) {
-        this.logger.log('End Speaking');
+        this.logger.log(`[${callSession.referenceId}] End Speaking`);
         isSpeaking = false;
         sttStream.end();
       }
@@ -187,53 +217,64 @@ export class AudioSocketService implements OnModuleInit {
 
     vadStream.on('end', () => {
       sttStream?.end();
-      this.logger.log('VAD stream ended');
+      this.logger.log(`[${callSession.referenceId}] VAD stream ended`);
     });
 
     vadStream.on('error', (err) => {
       sttStream.end();
-      this.logger.error('VAD error:', err);
+      this.logger.error(`[${callSession.referenceId}] VAD error:`, err);
     });
 
     audioStream.on('finish', () => {
       vadStream.end();
-      this.logger.log('Audio stream ended');
+      this.logger.log(`[${callSession.referenceId}] Audio stream ended`);
     });
   }
 
-  private async processTranscription(transcription: string) {
+  private async processTranscription(
+    transcription: string,
+    callSession: CallSession,
+  ) {
+    this.logger.log(`[${callSession.referenceId}] Processing Transcription`);
     if (transcription.trim() !== '') {
-      console.log(transcription);
-      this.interruptPlayback(); // Stop any ongoing playback
-      // await this.outboundStream.play(this.backchannelAudio); // Play backchannel audio
+      console.log(`[${callSession.referenceId}] ${transcription}`);
+      // Stop any ongoing playback
+      this.interruptPlayback(callSession);
 
-      const assistantResponse = await this.sendToAssistant(transcription);
-      await this.synthesizeAndPlay(assistantResponse);
+      const assistantResponse = await this.sendToAssistant(
+        callSession,
+        transcription,
+      );
+      await this.synthesizeAndPlay(callSession, assistantResponse);
     } else {
-      this.logger.log('Empty transcription');
+      this.logger.log(`[${callSession.referenceId}] Nothing to transcribe`);
     }
   }
 
-  private interruptPlayback() {
-    // Stop any ongoing playback
-    if (this.isPlaying && this.playbackTimeoutId) {
-      clearTimeout(this.playbackTimeoutId); // Cancel the current frame loop
-      this.isPlaying = false;
-      this.logger.log('Stopped previous playback');
+  private interruptPlayback(callSession: CallSession) {
+    if (callSession.isPlaying && callSession.playbackTimeoutId) {
+      clearTimeout(callSession.playbackTimeoutId); // Cancel the current frame loop
+      callSession.isPlaying = false;
+      this.logger.log(`[${callSession.referenceId}] Stopped previous playback`);
     }
   }
 
-  private async sendToAssistant(transcription: string): Promise<string> {
+  private async sendToAssistant(
+    callSession: CallSession,
+    transcription: string,
+  ): Promise<string> {
     try {
-      this.interruptPlayback(); // Stop any ongoing playback
-      this.logger.log(`Sending to OpenAI Assistant: ${transcription}`);
+      this.interruptPlayback(callSession); // Stop any ongoing playback
+      this.logger.log(
+        `[${callSession.referenceId}] Sending to OpenAI Assistant: ${transcription}`,
+      );
       // Create a new thread
       let response: string = '';
       await axios
-        .post('https://dev.roborachel.com/voice/v2/query', {
+        .post('http://127.0.0.1:3001/voice/v2/query', {
           message: transcription,
           language: this.language,
-          uniqueId: this.referenceId, // from pbx - search CDR
+          uniqueId: callSession.referenceId, // from pbx - search CDR
           // assistant or customer service agent
           rachelId: '86034909', // under rachel_tenant
           tenantId: '34975934',
@@ -245,17 +286,21 @@ export class AudioSocketService implements OnModuleInit {
 
       return response;
     } catch (error) {
-      this.logger.error(`Error sending to OpenAI Assistant: ${error.message}`);
+      this.logger.error(
+        `[${callSession.referenceId} Error sending to OpenAI Assistant: ${error.message}`,
+      );
       return 'I am sorry, I am not able to process your request at the moment.';
     }
   }
 
-  private async synthesizeAndPlay(text: string) {
-    this.logger.log(`Synthesizing speech: ${text}`);
+  private async synthesizeAndPlay(callSession: CallSession, text: string) {
+    this.logger.log(
+      `[${callSession.referenceId}] Synthesizing speech: ${text}`,
+    );
 
-    // Ensure this.outboundStream is available
-    if (!this.outboundStream) {
-      this.logger.error('AudioStream (this.outboundStream) is not initialized');
+    // Ensure this call session is still active
+    if (!this.activeCalls.has(callSession.referenceId)) {
+      this.logger.error(`[${callSession.referenceId}] Call is not active`);
       return;
     }
 
@@ -269,7 +314,7 @@ export class AudioSocketService implements OnModuleInit {
       const audioBuffer = response.audioContent as Buffer;
 
       this.logger.log(
-        `Synthesized audio buffer length: ${audioBuffer.length} bytes`,
+        `[${callSession.referenceId}] Synthesized audio buffer length: ${audioBuffer.length} bytes`,
       );
 
       // Asterisk expects 20ms frames for SLIN16 at 8 kHz
@@ -277,36 +322,44 @@ export class AudioSocketService implements OnModuleInit {
       const frameSize = 320;
       let offset = 0;
 
-      this.isPlaying = true; // Mark as playing
+      // Mark as playing for this specific call
+      callSession.isPlaying = true;
 
       // Simulate streaming by sending frames
       const sendFrame = () => {
+        // Check if the call session is still active
         if (
           offset >= audioBuffer.length ||
-          !this.outboundStream ||
-          !this.isPlaying
+          !callSession.outboundStream ||
+          !callSession.isPlaying ||
+          !this.activeCalls.has(callSession.referenceId)
         ) {
-          this.isPlaying = false;
-          this.playbackTimeoutId = null;
-          this.logger.log('Finished streaming synthesized audio');
+          callSession.isPlaying = false;
+          callSession.playbackTimeoutId = null;
+          this.logger.log(
+            `[${callSession.referenceId}] Finished streaming synthesized`,
+          );
           return;
         }
 
+        // Get the frame from the audio buffer
         const frame = audioBuffer.subarray(offset, offset + frameSize);
         offset += frameSize;
 
-        this.outboundStream.write(frame);
+        // Write the frame to the outbound stream
+        callSession.outboundStream.write(frame);
 
-        this.playbackTimeoutId = setTimeout(sendFrame, 20); // Store timeout ID
+        // Store timeout ID in call-specific context
+        callSession.playbackTimeoutId = setTimeout(sendFrame, 20);
       };
 
       // Start sending frames
       sendFrame();
     } catch (error) {
-      this.isPlaying = false;
-      this.playbackTimeoutId = null;
+      callSession.isPlaying = false;
+      callSession.playbackTimeoutId = null;
       this.logger.error(
-        `Error synthesizing or streaming speech: ${error.message}`,
+        `[${callSession.referenceId}] Error streaming speech for call : ${error.message}`,
       );
     }
   }
