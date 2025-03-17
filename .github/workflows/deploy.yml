@@ -25,5 +25,6 @@ jobs:
             cd ${{ secrets.APP_PATH }}
             git config --global --add safe.directory ${{ secrets.APP_PATH }}
             git reset --hard 
-            git pull origin main
+            git pull origin main --rebase
+            pm2 restart all
           EOF

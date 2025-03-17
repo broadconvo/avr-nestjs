@@ -1,203 +1,370 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Server, Socket } from 'net'; // Import Server and Socket from 'net'
-import { v4 as uuidv4 } from 'uuid';
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import * as ffmpeg from 'fluent-ffmpeg';
 import { PassThrough } from 'stream';
-import { protos, SpeechClient } from '@google-cloud/speech';
+import { protos as speechProtos, SpeechClient } from '@google-cloud/speech';
+import {
+  protos as textProtos,
+  TextToSpeechClient,
+} from '@google-cloud/text-to-speech';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { AudioSocket, AudioStream } from '@fonoster/streams';
+import * as VAD from 'node-vad';
+import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
+import { CallSession } from './call-session';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
+  private activeCalls: Map<string, CallSession> = new Map();
+  private readonly sampleRateHertz = 8000;
   private readonly logger = new Logger(AudioSocketService.name);
-  private server: Server;
-  private connections: Map<string, Socket> = new Map(); // Store connections by UUID
-  private readonly port = 9093; // TCP Port
-  private openai: any;
+  private readonly port: number; // TCP Port
+  private language: string;
   private speechClient: SpeechClient;
+  private textToSpeechClient: TextToSpeechClient;
+  private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
+  private readonly greetingsAudio: string;
+  private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig;
+  private readonly textToSpeechConfig;
 
+  constructor(private readonly configService: ConfigService) {
+    const languageSpeechText = this.configService.get<string>(
+      'LANGUAGE_SPEECH_TO_TEXT',
+      'en-us',
+    );
+    const languageTextSpeech = this.configService.get<string>(
+      'LANGUAGE_TEXT_TO_SPEECH',
+      'en-us',
+    );
+    const languageTextSpeechName = this.configService.get<string>(
+      'LANGUAGE_TEXT_TO_SPEECH_NAME',
+      'en-US-Standard-F',
+    );
+    const languageModel = this.configService.get<string>(
+      'LANGUAGE_MODEL',
+      'phone_call',
+    );
+
+    this.port = this.configService.get<number>('AUDIOSOCKET_PORT', 9093); // Default to 3001 if not set
+
+    this.speechToTextConfig = {
+      config: {
+        encoding:
+          speechProtos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
+            .LINEAR16,
+        sampleRateHertz: this.sampleRateHertz,
+        languageCode: languageSpeechText,
+        model: languageModel, // Optimized for phone call audio
+        useEnhanced: true, // Enables enhanced model for better noise robustness
+      },
+      interimResults: false, // Set to true if you want interim results
+    };
+
+    this.textToSpeechConfig = {
+      voice: {
+        languageCode: languageTextSpeech,
+        name: languageTextSpeechName,
+        ssmlGender: 'FEMALE' as const,
+      },
+      audioConfig: {
+        audioEncoding:
+          textProtos.google.cloud.texttospeech.v1.AudioEncoding.LINEAR16,
+        sampleRateHertz: this.sampleRateHertz,
+        pitch: 0,
+        speakingRate: 1.19,
+      },
+    };
+
+    this.greetingsAudio = this.configService.get<string>(
+      'AUDIO_GREETINGS',
+      'Thank you for calling Mustard, how can I help you?',
+    );
+
+    this.language = this.configService.get<string>(
+      'LANGUAGE_RACHEL',
+      'English',
+    );
+  }
 
   onModuleInit() {
     this.speechClient = new SpeechClient();
-    this.openai = createOpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.textToSpeechClient = new TextToSpeechClient();
     this.startServer();
   }
 
   private startServer() {
-    this.server = new Server((socket) => {
-      const connectionId = uuidv4(); // Generate a UUID for the connection
-      this.logger.log(`Client connected: ${connectionId}`);
-      this.connections.set(connectionId, socket);
+    const audioSocket = new AudioSocket();
 
-      const audioStream = new PassThrough(); // Stream SLIN16 data
+    audioSocket.onConnection((req, outboundStream) => {
+      this.logger.log('new connection from:', req);
+      const referenceId = req.ref;
 
-      // Handle data from the client
-      socket.on('data', (data) => {
-        audioStream.write(data); // Push SLIN16 data
+      // Create a new call session for this connection
+      const callSession = new CallSession(outboundStream, referenceId);
+      // Store the session with a unique key (referenceId or another unique identifier)
+      this.activeCalls.set(referenceId, callSession);
+      this.logger.log(
+        `[${callSession.referenceId}] Active calls: ${this.activeCalls.size}`,
+      );
+
+      const audioStream = new PassThrough();
+
+      outboundStream.onData((data) => {
+        audioStream.write(data);
       });
 
-      // Handle client disconnection
-      socket.on('end', async () => {
-        this.logger.log(`Client disconnected: ${connectionId}`);
-        this.connections.delete(connectionId);
-        audioStream.end(); // Close stream
-        await this.streamToGoogleSTT(audioStream, socket); // Start STT
+      outboundStream.onClose(async () => {
+        // Get the call session before removing it
+        const session = this.activeCalls.get(referenceId);
+        if (session) {
+          await this.synthesizeAndPlay(callSession, 'Goodbye!');
+          // Remove the call from our map when it is closed
+          this.activeCalls.delete(referenceId);
+          this.logger.log(
+            `[${callSession.referenceId}] Callended. Active calls: ${this.activeCalls.size}`,
+          );
+        }
+        audioStream.end();
+        this.logger.log(`[${callSession.referenceId}] AudioSocket closed`);
       });
 
-      socket.on('error', (err) => {
-        this.logger.error(`Socket error: ${err.message}`, err.stack);
-        this.connections.delete(connectionId);
-        socket.destroy();
+      outboundStream.onError((err) => {
+        // Clean up on error too
+        this.activeCalls.delete(referenceId);
+        audioStream.end();
+        this.logger.error(
+          `[${callSession.referenceId}] AudioSocket error:`,
+          err,
+        );
       });
 
-      // this.sendUuid(socket);
-    }); // end new Server
+      // Assuming SLIN16 at 8000 Hz based on STT config
+      setTimeout(
+        async () =>
+          await this.synthesizeAndPlay(callSession, this.greetingsAudio),
+        500,
+      );
 
-    /*
-     * Listeners for the 'error' and 'listening' events
-     */
-
-    this.server.listen(this.port, () => {
-      this.logger.log(`AudioSocket server listening on port ${this.port}`);
+      this.streamToGoogleSTT(audioStream, callSession);
     });
 
-    this.server.on('error', (err) => {
-      this.logger.error(`Server error: ${err.message}`, err.stack);
+    audioSocket.listen(this.port, () => {
+      this.logger.log(`AudioSocket listening on port ${this.port}`);
     });
-  } // end startServer
+  }
 
-  private handleStreaming(
-    connectionId: string,
-    audioData: Buffer[],
-    socket: Socket,
+  private streamToGoogleSTT(
+    audioStream: PassThrough,
+    callSession: CallSession,
   ) {
-    // Process the audio data here
-    this.logger.debug(
-      `Received data from ${connectionId}: ${audioData.length} bytes`,
+    this.logger.log(
+      `[${callSession.referenceId}] Starting Google STT Streaming `,
     );
-    // Example: Echo the data back to the client (for testing)
-    // socket.write(data);
 
-    // Send audio to OpenAI for transcription
-    try {
-      const slin16Buffer = Buffer.concat(audioData); // Combine SLIN16 audio frames
-      // const wavBuffer = await this.convertSlin16ToWav(slin16Buffer); // Convert to WAV
+    // VAD configuration
+    const vadStream = VAD.createStream({
+      audioFrequency: this.sampleRateHertz,
+      mode: VAD.Mode.NORMAL, // More selective, reduces false positives from noise
+      debounceTime: 200, // Reduced for faster response, adjust based on testing
+      silenceThreshold: 0.8, // Higher threshold to filter out background noise
+    });
 
-      // const result = await generateText({
-      //   model: this.openai('gpt-4o-audio-preview', { simulateStreaming: true }),
-      //   messages: [
-      //     {
-      //       role: 'user',
-      //       content: [
-      //         { type: 'text', text: 'What is the audio saying?' },
-      //         {
-      //           type: 'file',
-      //           mimeType: 'audio/wav', // Adjust MIME type if necessary
-      //           data: wavBuffer,
-      //         },
-      //       ],
-      //     },
-      //   ],
-      // });
+    audioStream.pipe(vadStream);
 
-      // this.logger.log(`Transcription from OpenAI: ${result.text}`);
+    let isSpeaking = false;
+    let sttStream: any = null;
+    let transcription = '';
 
-      // Send the transcribed text back to the client if needed
-      // socket.write(slin16Buffer);
+    vadStream.on('data', (data: VAD.Result) => {
+      if (data.speech.start && !isSpeaking) {
+        isSpeaking = true;
+        transcription = '';
 
-      // Clear buffer after processing
-      audioData.length = 0;
-    } catch (error) {
-      this.logger.error(`Error streaming audio to OpenAI: ${error.message}`);
-    }
+        sttStream = this.speechClient
+          .streamingRecognize(this.speechToTextConfig)
+          .on('data', (response) => {
+            if (response.results?.[0]?.isFinal) {
+              transcription = response.results[0].alternatives[0].transcript;
+              this.processTranscription(transcription, callSession);
+            }
+          })
+          .on('error', (err) => {
+            this.logger.error(
+              `[${callSession.referenceId}] Speech-To-Text stream Error: ${err.message}`,
+            );
+          })
+          .on('end', () => {
+            this.logger.log(
+              `[${callSession.referenceId}] Speech-To-Text stream ended`,
+            );
+          });
 
-    //TODO: Implement your audio processing logic here
-    // - Volume calculation
-    // - Speech detection
-    // - Send to Deepgram
-    // - Receive TTS
-    // - Stream back to Asterisk
-  }
+        // Write the first audio chunk
+        this.logger.log(
+          `[${callSession.referenceId}] Writing audio chunk to stream for STT`,
+        );
+        sttStream.write(data.audioData);
+      } else if (isSpeaking && data.speech.state) {
+        this.logger.log(`[${callSession.referenceId}] Still Speaking`);
+        // Continue writing audio chunks during speech
+        sttStream.write(data.audioData);
+      } else if (data.speech.end && isSpeaking) {
+        this.logger.log(`[${callSession.referenceId}] End Speaking`);
+        isSpeaking = false;
+        sttStream.end();
+      }
+    });
 
-  sendUuid(connection: Socket): void {
-    const uuid = uuidv4();
-    const uuidBuffer = Buffer.from(uuid.replace(/-/g, ''), 'hex'); // Convert UUID string to Buffer
-    const type = 0x01; // Packet Type
-    const length = 16; // Packet Length
+    vadStream.on('end', () => {
+      sttStream?.end();
+      this.logger.log(`[${callSession.referenceId}] VAD stream ended`);
+    });
 
-    // Create the packet using Buffer.concat
-    const typeBuffer = Buffer.alloc(1);
-    typeBuffer.writeUInt8(type, 0);
+    vadStream.on('error', (err) => {
+      sttStream.end();
+      this.logger.error(`[${callSession.referenceId}] VAD error:`, err);
+    });
 
-    const lengthBuffer = Buffer.alloc(2);
-    lengthBuffer.writeUInt16BE(length, 0); // Big-endian
-
-    const packet = Buffer.concat([typeBuffer, lengthBuffer, uuidBuffer]);
-
-    // connection.write(packet);
-    // this.logger.log(`Sent UUID ${uuid} to client.`);
-  }
-
-  private async streamToGoogleSTT(audioStream: PassThrough, socket: Socket) {
-    const request: protos.google.cloud.speech.v1.IStreamingRecognitionConfig = {
-      config: {
-        encoding:
-          protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding
-            .LINEAR16, // SLIN16 is 16-bit PCM
-        sampleRateHertz: 16000, // Standard for SLIN16
-        languageCode: 'en-US',
-      },
-      interimResults: true, // Get partial transcriptions
-    };
-
-    const recognizeStream = this.speechClient
-      .streamingRecognize(request)
-      .on('error', (err) => {
-        this.logger.error(`Google STT Error: ${err.message}`);
-      })
-      .on('data', (data) => {
-        const transcription = data.results
-          .map((result: any) => result.alternatives[0].transcript)
-          .join('\n');
-
-        this.logger.log(`Transcription: ${transcription}`);
-        // socket.write(`Transcription: ${transcription}\n`); // Send back text
-      });
-
-    audioStream.pipe(recognizeStream);
-  }
-
-  private convertSlin16ToWav(slin16Buffer: Buffer): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const inputStream = new PassThrough();
-      const outputStream = new PassThrough();
-      const chunks: Buffer[] = [];
-
-      inputStream.end(slin16Buffer);
-
-      ffmpeg(inputStream)
-        .inputFormat('s16le') // SLIN16 format
-        .audioFrequency(16000) // 16 kHz sample rate
-        .audioChannels(1) // Mono
-        .audioCodec('pcm_s16le') // PCM codec
-        .format('wav') // Output format: WAV
-        .on('error', reject)
-        .on('end', () => resolve(Buffer.concat(chunks)))
-        .pipe(outputStream);
-
-      outputStream.on('data', (chunk) => chunks.push(chunk));
+    audioStream.on('finish', () => {
+      vadStream.end();
+      this.logger.log(`[${callSession.referenceId}] Audio stream ended`);
     });
   }
 
-  // Example method to send data to a specific connection
-  sendData(connectionId: string, data: Buffer) {
-    const socket = this.connections.get(connectionId);
-    if (socket) {
-      socket.write(data);
+  private async processTranscription(
+    transcription: string,
+    callSession: CallSession,
+  ) {
+    this.logger.log(`[${callSession.referenceId}] Processing Transcription`);
+    if (transcription.trim() !== '') {
+      console.log(`[${callSession.referenceId}] ${transcription}`);
+      // Stop any ongoing playback
+      this.interruptPlayback(callSession);
+
+      const assistantResponse = await this.sendToAssistant(
+        callSession,
+        transcription,
+      );
+      await this.synthesizeAndPlay(callSession, assistantResponse);
     } else {
-      this.logger.warn(`Connection ${connectionId} not found.`);
+      this.logger.log(`[${callSession.referenceId}] Nothing to transcribe`);
     }
+  }
+
+  private interruptPlayback(callSession: CallSession) {
+    if (callSession.isPlaying && callSession.playbackTimeoutId) {
+      clearTimeout(callSession.playbackTimeoutId); // Cancel the current frame loop
+      callSession.isPlaying = false;
+      this.logger.log(`[${callSession.referenceId}] Stopped previous playback`);
+    }
+  }
+
+  private async sendToAssistant(
+    callSession: CallSession,
+    transcription: string,
+  ): Promise<string> {
+    try {
+      this.interruptPlayback(callSession); // Stop any ongoing playback
+      this.logger.log(
+        `[${callSession.referenceId}] Sending to OpenAI Assistant: ${transcription}`,
+      );
+      // Create a new thread
+      let response: string = '';
+      await axios
+        .post('http://127.0.0.1:3001/voice/v2/query', {
+          message: transcription,
+          language: this.language,
+          uniqueId: callSession.referenceId, // from pbx - search CDR
+          // assistant or customer service agent
+          rachelId: '86034909', // under rachel_tenant
+          tenantId: '34975934',
+        })
+        .then((res) => {
+          console.log(res.data.response);
+          response = res.data.response;
+        });
+
+      return response;
+    } catch (error) {
+      this.logger.error(
+        `[${callSession.referenceId} Error sending to OpenAI Assistant: ${error.message}`,
+      );
+      return 'I am sorry, I am not able to process your request at the moment.';
+    }
+  }
+
+  private async synthesizeAndPlay(callSession: CallSession, text: string) {
+    this.logger.log(
+      `[${callSession.referenceId}] Synthesizing speech: ${text}`,
+    );
+
+    // Ensure this call session is still active
+    if (!this.activeCalls.has(callSession.referenceId)) {
+      this.logger.error(`[${callSession.referenceId}] Call is not active`);
+      return;
+    }
+
+    // Configure the TTS request for SLIN16 at 8 kHz
+    const request = { ...this.textToSpeechConfig, input: { text } };
+
+    try {
+      // Synthesize speech
+      const [response] =
+        await this.textToSpeechClient.synthesizeSpeech(request);
+      const audioBuffer = response.audioContent as Buffer;
+
+      this.logger.log(
+        `[${callSession.referenceId}] Synthesized audio buffer length: ${audioBuffer.length} bytes`,
+      );
+
+      // Asterisk expects 20ms frames for SLIN16 at 8 kHz
+      // 8 kHz * 2 bytes/sample * 0.02s = 320 bytes per frame
+      const frameSize = 320;
+      let offset = 0;
+
+      // Mark as playing for this specific call
+      callSession.isPlaying = true;
+
+      // Simulate streaming by sending frames
+      const sendFrame = () => {
+        // Check if the call session is still active
+        if (
+          offset >= audioBuffer.length ||
+          !callSession.outboundStream ||
+          !callSession.isPlaying ||
+          !this.activeCalls.has(callSession.referenceId)
+        ) {
+          callSession.isPlaying = false;
+          callSession.playbackTimeoutId = null;
+          this.logger.log(
+            `[${callSession.referenceId}] Finished streaming synthesized`,
+          );
+          return;
+        }
+
+        // Get the frame from the audio buffer
+        const frame = audioBuffer.subarray(offset, offset + frameSize);
+        offset += frameSize;
+
+        // Write the frame to the outbound stream
+        callSession.outboundStream.write(frame);
+
+        // Store timeout ID in call-specific context
+        callSession.playbackTimeoutId = setTimeout(sendFrame, 20);
+      };
+
+      // Start sending frames
+      sendFrame();
+    } catch (error) {
+      callSession.isPlaying = false;
+      callSession.playbackTimeoutId = null;
+      this.logger.error(
+        `[${callSession.referenceId}] Error streaming speech for call : ${error.message}`,
+      );
+    }
+  }
+
+  private getAudioAsset(filename: string) {
+    return path.join(__dirname, '..', '..', 'assets', 'audio', filename);
   }
 }
