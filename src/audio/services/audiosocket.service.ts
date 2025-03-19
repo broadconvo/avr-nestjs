@@ -5,29 +5,42 @@ import {
   protos as textProtos,
   TextToSpeechClient,
 } from '@google-cloud/text-to-speech';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { AudioSocket, AudioStream } from '@fonoster/streams';
+import { AudioSocket } from '@fonoster/streams';
 import * as VAD from 'node-vad';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
-import { CallSession } from './call-session';
+import { CallSessionService } from './call-session.service';
+import { CallSession } from '../entities/call-session.entity';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
-  private activeCalls: Map<string, CallSession> = new Map();
-  private readonly sampleRateHertz = 8000;
   private readonly logger = new Logger(AudioSocketService.name);
-  private readonly port: number; // TCP Port
-  private language: string;
+  private readonly port: number; // Websocket TCP Port
+
+  private readonly sampleRateHertz = 8000;
   private speechClient: SpeechClient;
   private textToSpeechClient: TextToSpeechClient;
-  private readonly backchannelAudio = this.getAudioAsset('backchannel.wav');
-  private readonly greetingsAudio: string;
   private speechToTextConfig: speechProtos.google.cloud.speech.v1.IStreamingRecognitionConfig;
-  private readonly textToSpeechConfig;
+  private readonly textToSpeechConfig: textProtos.google.cloud.texttospeech.v1.ISynthesizeSpeechRequest;
 
-  constructor(private readonly configService: ConfigService) {
+  private readonly audioGreetings: string;
+  private readonly audioError: string;
+
+  private readonly rachelLanguage: string;
+  private readonly rachelUrl: string;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly callSessionService: CallSessionService,
+  ) {
+    this.rachelUrl = this.configService.get<string>(
+      'RACHEL_URL',
+      'http://127.0.0.1:3001/voice/v2/query',
+    );
+    this.rachelLanguage = this.configService.get<string>(
+      'RACHEL_LANGUAGE',
+      'English',
+    );
     const languageSpeechText = this.configService.get<string>(
       'LANGUAGE_SPEECH_TO_TEXT',
       'en-us',
@@ -45,7 +58,7 @@ export class AudioSocketService implements OnModuleInit {
       'phone_call',
     );
 
-    this.port = this.configService.get<number>('AUDIOSOCKET_PORT', 9093); // Default to 3001 if not set
+    this.port = this.configService.get<number>('AUDIOSOCKET_PORT', 9093);
 
     this.speechToTextConfig = {
       config: {
@@ -75,14 +88,13 @@ export class AudioSocketService implements OnModuleInit {
       },
     };
 
-    this.greetingsAudio = this.configService.get<string>(
+    this.audioGreetings = this.configService.get<string>(
       'AUDIO_GREETINGS',
       'Thank you for calling Mustard, how can I help you?',
     );
-
-    this.language = this.configService.get<string>(
-      'LANGUAGE_RACHEL',
-      'English',
+    this.audioError = this.configService.get<string>(
+      'AUDIO_ERROR',
+      'I apologize, but I encountered an error. Please try again later.',
     );
   }
 
@@ -97,14 +109,23 @@ export class AudioSocketService implements OnModuleInit {
 
     audioSocket.onConnection((req, outboundStream) => {
       this.logger.log('new connection from:', req);
-      const referenceId = req.ref;
+      const sessionId = req.ref;
 
-      // Create a new call session for this connection
-      const callSession = new CallSession(outboundStream, referenceId);
-      // Store the session with a unique key (referenceId or another unique identifier)
-      this.activeCalls.set(referenceId, callSession);
+      // Try to get the call session from the service using the sessionId
+      const callSession = this.callSessionService.getSession(sessionId);
+      if (!callSession) {
+        this.logger.error(`[${sessionId}] Call session not found`);
+        return;
+      } else {
+        // Update the call session with the new outbound stream
+        callSession.outboundStream = outboundStream;
+        this.logger.log(
+          `[${sessionId}] Call session found and updated with new outbound stream`,
+        );
+      }
+
       this.logger.log(
-        `[${callSession.referenceId}] Active calls: ${this.activeCalls.size}`,
+        `[${sessionId}] Active calls: ${this.callSessionService.getActiveSessions.length}`,
       );
 
       const audioStream = new PassThrough();
@@ -114,34 +135,29 @@ export class AudioSocketService implements OnModuleInit {
       });
 
       outboundStream.onClose(async () => {
-        // Get the call session before removing it
-        const session = this.activeCalls.get(referenceId);
-        if (session) {
+        if (callSession) {
           await this.synthesizeAndPlay(callSession, 'Goodbye!');
           // Remove the call from our map when it is closed
-          this.activeCalls.delete(referenceId);
+          this.callSessionService.deleteSession(sessionId);
           this.logger.log(
-            `[${callSession.referenceId}] Callended. Active calls: ${this.activeCalls.size}`,
+            `[${sessionId}] Call ended. Active calls: ${this.callSessionService.getActiveSessions.length}`,
           );
         }
         audioStream.end();
-        this.logger.log(`[${callSession.referenceId}] AudioSocket closed`);
+        this.logger.log(`[${sessionId}] AudioSocket closed`);
       });
 
       outboundStream.onError((err) => {
         // Clean up on error too
-        this.activeCalls.delete(referenceId);
+        this.callSessionService.deleteSession(sessionId);
         audioStream.end();
-        this.logger.error(
-          `[${callSession.referenceId}] AudioSocket error:`,
-          err,
-        );
+        this.logger.error(`[${sessionId}] AudioSocket error: `, err);
       });
 
-      // Assuming SLIN16 at 8000 Hz based on STT config
+      // wait 0.5seconds before playing greetings audio
       setTimeout(
         async () =>
-          await this.synthesizeAndPlay(callSession, this.greetingsAudio),
+          await this.synthesizeAndPlay(callSession, this.audioGreetings),
         500,
       );
 
@@ -149,7 +165,7 @@ export class AudioSocketService implements OnModuleInit {
     });
 
     audioSocket.listen(this.port, () => {
-      this.logger.log(`AudioSocket listening on port ${this.port}`);
+      this.logger.log(`🚀 AudioSocket listening on port ${this.port}`);
     });
   }
 
@@ -157,9 +173,8 @@ export class AudioSocketService implements OnModuleInit {
     audioStream: PassThrough,
     callSession: CallSession,
   ) {
-    this.logger.log(
-      `[${callSession.referenceId}] Starting Google STT Streaming `,
-    );
+    const callSessionId = callSession.metadata.sessionId;
+    this.logger.log(`[${callSessionId}] Starting Google STT Streaming `);
 
     // VAD configuration
     const vadStream = VAD.createStream({
@@ -190,26 +205,24 @@ export class AudioSocketService implements OnModuleInit {
           })
           .on('error', (err) => {
             this.logger.error(
-              `[${callSession.referenceId}] Speech-To-Text stream Error: ${err.message}`,
+              `[${callSessionId}] Speech-To-Text stream Error: ${err.message}`,
             );
           })
           .on('end', () => {
-            this.logger.log(
-              `[${callSession.referenceId}] Speech-To-Text stream ended`,
-            );
+            this.logger.log(`[${callSessionId}] Speech-To-Text stream ended`);
           });
 
         // Write the first audio chunk
         this.logger.log(
-          `[${callSession.referenceId}] Writing audio chunk to stream for STT`,
+          `[${callSessionId}] Writing audio chunk to stream for STT`,
         );
         sttStream.write(data.audioData);
       } else if (isSpeaking && data.speech.state) {
-        this.logger.log(`[${callSession.referenceId}] Still Speaking`);
+        this.logger.log(`[${callSessionId}] Still Speaking`);
         // Continue writing audio chunks during speech
         sttStream.write(data.audioData);
       } else if (data.speech.end && isSpeaking) {
-        this.logger.log(`[${callSession.referenceId}] End Speaking`);
+        this.logger.log(`[${callSessionId}] End Speaking`);
         isSpeaking = false;
         sttStream.end();
       }
@@ -217,17 +230,17 @@ export class AudioSocketService implements OnModuleInit {
 
     vadStream.on('end', () => {
       sttStream?.end();
-      this.logger.log(`[${callSession.referenceId}] VAD stream ended`);
+      this.logger.log(`[${callSessionId}] VAD stream ended`);
     });
 
     vadStream.on('error', (err) => {
       sttStream.end();
-      this.logger.error(`[${callSession.referenceId}] VAD error:`, err);
+      this.logger.error(`[${callSessionId}] VAD error:`, err);
     });
 
     audioStream.on('finish', () => {
       vadStream.end();
-      this.logger.log(`[${callSession.referenceId}] Audio stream ended`);
+      this.logger.log(`[${callSessionId}] Audio stream ended`);
     });
   }
 
@@ -235,9 +248,10 @@ export class AudioSocketService implements OnModuleInit {
     transcription: string,
     callSession: CallSession,
   ) {
-    this.logger.log(`[${callSession.referenceId}] Processing Transcription`);
+    const callSessionId = callSession.metadata.sessionId;
+    this.logger.log(`[${callSessionId}] Processing Transcription`);
     if (transcription.trim() !== '') {
-      console.log(`[${callSession.referenceId}] ${transcription}`);
+      console.log(`[${callSessionId}] ${transcription}`);
       // Stop any ongoing playback
       this.interruptPlayback(callSession);
 
@@ -247,7 +261,7 @@ export class AudioSocketService implements OnModuleInit {
       );
       await this.synthesizeAndPlay(callSession, assistantResponse);
     } else {
-      this.logger.log(`[${callSession.referenceId}] Nothing to transcribe`);
+      this.logger.log(`[${callSessionId}] Nothing to transcribe`);
     }
   }
 
@@ -255,7 +269,9 @@ export class AudioSocketService implements OnModuleInit {
     if (callSession.isPlaying && callSession.playbackTimeoutId) {
       clearTimeout(callSession.playbackTimeoutId); // Cancel the current frame loop
       callSession.isPlaying = false;
-      this.logger.log(`[${callSession.referenceId}] Stopped previous playback`);
+      this.logger.log(
+        `[${callSession.metadata.sessionId}] Stopped previous playback`,
+      );
     }
   }
 
@@ -263,21 +279,22 @@ export class AudioSocketService implements OnModuleInit {
     callSession: CallSession,
     transcription: string,
   ): Promise<string> {
+    const callSessionId = callSession.metadata.sessionId;
     try {
       this.interruptPlayback(callSession); // Stop any ongoing playback
       this.logger.log(
-        `[${callSession.referenceId}] Sending to OpenAI Assistant: ${transcription}`,
+        `[${callSessionId}] Sending to Rachel (OpenAI): ${transcription}`,
       );
       // Create a new thread
       let response: string = '';
       await axios
-        .post('http://127.0.0.1:3001/voice/v2/query', {
+        .post(this.rachelUrl, {
           message: transcription,
-          language: this.language,
-          uniqueId: callSession.referenceId, // from pbx - search CDR
-          // assistant or customer service agent
-          rachelId: '86034909', // under rachel_tenant
-          tenantId: '34975934',
+          language: this.rachelLanguage,
+          uniqueId: callSessionId, // from pbx - search CDR
+          // customer service agent or receptionist
+          rachelId: '34682642', // under rachel_tenant
+          tenantId: '93284237',
         })
         .then((res) => {
           console.log(res.data.response);
@@ -287,20 +304,19 @@ export class AudioSocketService implements OnModuleInit {
       return response;
     } catch (error) {
       this.logger.error(
-        `[${callSession.referenceId} Error sending to OpenAI Assistant: ${error.message}`,
+        `[${callSessionId} Error sending to Rachel (OpenAI): ${error.message}`,
       );
-      return 'I am sorry, I am not able to process your request at the moment.';
+      return this.audioError;
     }
   }
 
   private async synthesizeAndPlay(callSession: CallSession, text: string) {
-    this.logger.log(
-      `[${callSession.referenceId}] Synthesizing speech: ${text}`,
-    );
+    const callSessionId = callSession.metadata.sessionId;
+    this.logger.log(`[${callSessionId}] Synthesizing speech: ${text}`);
 
     // Ensure this call session is still active
-    if (!this.activeCalls.has(callSession.referenceId)) {
-      this.logger.error(`[${callSession.referenceId}] Call is not active`);
+    if (callSession.isExpired) {
+      this.logger.error(`[${callSessionId}] Call session is already expired`);
       return;
     }
 
@@ -314,7 +330,7 @@ export class AudioSocketService implements OnModuleInit {
       const audioBuffer = response.audioContent as Buffer;
 
       this.logger.log(
-        `[${callSession.referenceId}] Synthesized audio buffer length: ${audioBuffer.length} bytes`,
+        `[${callSessionId}] Synthesized audio buffer length: ${audioBuffer.length} bytes`,
       );
 
       // Asterisk expects 20ms frames for SLIN16 at 8 kHz
@@ -332,13 +348,11 @@ export class AudioSocketService implements OnModuleInit {
           offset >= audioBuffer.length ||
           !callSession.outboundStream ||
           !callSession.isPlaying ||
-          !this.activeCalls.has(callSession.referenceId)
+          !callSession.isExpired
         ) {
           callSession.isPlaying = false;
           callSession.playbackTimeoutId = null;
-          this.logger.log(
-            `[${callSession.referenceId}] Finished streaming synthesized`,
-          );
+          this.logger.log(`[${callSessionId}] Finished streaming synthesized`);
           return;
         }
 
@@ -359,12 +373,8 @@ export class AudioSocketService implements OnModuleInit {
       callSession.isPlaying = false;
       callSession.playbackTimeoutId = null;
       this.logger.error(
-        `[${callSession.referenceId}] Error streaming speech for call : ${error.message}`,
+        `[${callSessionId}] Error synthesizing text to speech: ${error.message}`,
       );
     }
-  }
-
-  private getAudioAsset(filename: string) {
-    return path.join(__dirname, '..', '..', 'assets', 'audio', filename);
   }
 }
