@@ -94,3 +94,4 @@ typings/
 dist
 .vscode
 .cursor
+ecosystem.config.js
