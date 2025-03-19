@@ -90,6 +90,8 @@ typings/
 .DS_store
 .env
 .env.*
+.env.workflow
 dist
 .vscode
 .cursor
+ecosystem.config.js
