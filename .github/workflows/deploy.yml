@@ -24,7 +24,6 @@ jobs:
             sudo chown -R ${{ secrets.SERVER_USERNAME }}:${{ secrets.SERVER_USERNAME }} ${{ secrets.APP_PATH }}
             cd ${{ secrets.APP_PATH }}
             git config --global --add safe.directory ${{ secrets.APP_PATH }}
-            git reset --hard 
-            git pull origin main --rebase
-            pm2 restart all
+            gp-main
+            avr-reload
           EOF
