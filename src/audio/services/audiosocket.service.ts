@@ -28,6 +28,8 @@ export class AudioSocketService implements OnModuleInit {
 
   private readonly rachelLanguage: string;
   private readonly rachelUrl: string;
+  private readonly rachelTenantId: string;
+  private readonly rachelId: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -41,6 +43,11 @@ export class AudioSocketService implements OnModuleInit {
       'RACHEL_LANGUAGE',
       'English',
     );
+    this.rachelTenantId = this.configService.get<string>(
+      'RACHEL_TENANT_ID',
+      '0',
+    );
+    this.rachelTenantId = this.configService.get<string>('RACHEL_ID', '0');
     const languageSpeechText = this.configService.get<string>(
       'LANGUAGE_SPEECH_TO_TEXT',
       'en-us',
@@ -300,8 +307,8 @@ export class AudioSocketService implements OnModuleInit {
           language: this.rachelLanguage,
           uniqueId: callSessionId, // from pbx - search CDR
           // customer service agent or receptionist
-          rachelId: '34682642', // under rachel_tenant
-          tenantId: '93284237',
+          rachelId: this.rachelId,
+          tenantId: this.rachelTenantId,
         })
         .then((res) => {
           console.log(res.data.response);
