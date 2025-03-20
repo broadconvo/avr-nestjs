@@ -3,6 +3,9 @@ import { Optional } from '@nestjs/common';
 
 export class CallMetadataDto {
   @IsString()
+  DID: string;
+
+  @IsString()
   @Optional()
   callerId?: string;
 

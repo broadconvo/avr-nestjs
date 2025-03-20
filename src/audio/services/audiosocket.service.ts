@@ -117,8 +117,12 @@ export class AudioSocketService implements OnModuleInit {
       console.log('callSession', callSession);
       if (!callSession) {
         this.logger.error(`[${sessionId}] Call session not found`);
+        outboundStream.hangup();
         throw new Error('Call session not found');
       } else {
+        this.logger.log(
+          `[${sessionId}] New call from ${callSession.metadata.DID}`,
+        );
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
         this.logger.log(
