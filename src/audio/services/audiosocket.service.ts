@@ -336,10 +336,10 @@ export class AudioSocketService implements OnModuleInit {
     const request = { ...this.textToSpeechConfig, input: { text } };
 
     try {
-      // Check if the stream is writable/active
-      if (typeof callSession.outboundStream.write !== 'function') {
+      // Validate and log outboundStream status
+      if (!callSession.outboundStream) {
         this.logger.error(
-          `OutboundStream for session ${callSession.metadata.sessionId} is invalid`,
+          `OutboundStream is null for session ${callSessionId}`,
         );
         return;
       }
@@ -367,8 +367,7 @@ export class AudioSocketService implements OnModuleInit {
         if (
           offset >= audioBuffer.length ||
           !callSession.outboundStream ||
-          !callSession.isPlaying ||
-          !callSession.isExpired
+          !callSession.isPlaying
         ) {
           callSession.isPlaying = false;
           callSession.playbackTimeoutId = null;
