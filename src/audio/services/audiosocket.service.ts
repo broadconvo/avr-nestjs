@@ -121,6 +121,7 @@ export class AudioSocketService implements OnModuleInit {
       } else {
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
+        this.callSessionService.updateSession(sessionId, { outboundStream });
         this.logger.log(
           `[${sessionId}] Call session found and updated with new outbound stream`,
         );
@@ -317,6 +318,14 @@ export class AudioSocketService implements OnModuleInit {
     const callSessionId = callSession.metadata.sessionId;
     this.logger.log(`[${callSessionId}] Synthesizing speech: ${text}`);
 
+    // Validate the stream before using it
+    if (!callSession.outboundStream) {
+      this.logger.error(
+        `No outboundStream available for session ${callSession.metadata.sessionId}`,
+      );
+      return;
+    }
+
     // Ensure this call session is still active
     if (callSession.isExpired) {
       this.logger.error(`[${callSessionId}] Call session is already expired`);
@@ -327,6 +336,14 @@ export class AudioSocketService implements OnModuleInit {
     const request = { ...this.textToSpeechConfig, input: { text } };
 
     try {
+      // Check if the stream is writable/active
+      if (typeof callSession.outboundStream.write !== 'function') {
+        this.logger.error(
+          `OutboundStream for session ${callSession.metadata.sessionId} is invalid`,
+        );
+        return;
+      }
+
       // Synthesize speech
       const [response] =
         await this.textToSpeechClient.synthesizeSpeech(request);
