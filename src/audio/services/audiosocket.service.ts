@@ -28,8 +28,8 @@ export class AudioSocketService implements OnModuleInit {
 
   private readonly rachelLanguage: string;
   private readonly rachelUrl: string;
-  private readonly rachelTenantId: string;
-  private readonly rachelId: string;
+  private rachelTenantId: string;
+  private rachelId: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -43,14 +43,9 @@ export class AudioSocketService implements OnModuleInit {
       'RACHEL_LANGUAGE',
       'English',
     );
-    this.rachelTenantId = this.configService.get<string>(
-      'RACHEL_TENANT_ID',
-      '0',
-    );
-    this.rachelId = this.configService.get<string>('RACHEL_ID', '0');
     const languageSpeechText = this.configService.get<string>(
       'LANGUAGE_SPEECH_TO_TEXT',
-      'en-us',
+      'en-US',
     );
     const languageTextSpeech = this.configService.get<string>(
       'LANGUAGE_TEXT_TO_SPEECH',
@@ -130,6 +125,15 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.log(
           `[${sessionId}] New call from ${callSession.metadata.DID}`,
         );
+
+        axios
+          .get(
+            `http://127.0.0.0:3002/api/broadconvo/phones/${callSession.metadata.DID}`,
+          )
+          .then((res) => {
+            this.rachelId = res.data.data.rachel_id;
+            this.rachelTenantId = res.data.data.tenant_id;
+          });
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
         this.logger.log(
