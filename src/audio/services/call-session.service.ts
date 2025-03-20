@@ -26,7 +26,7 @@ export class CallSessionService implements OnModuleInit {
   saveSession(metadata: CallMetadataDto): void {
     const ttlSeconds = this.configService.get<number>(
       'CALL_SESSION_TTL_SECONDS',
-      60,
+      1800,
     );
     const session = new CallSession(metadata, ttlSeconds);
     this.sessions.set(metadata.sessionId, session);

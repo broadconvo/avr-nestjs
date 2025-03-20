@@ -1,11 +1,14 @@
 import { IsString } from '@nestjs/class-validator';
+import { Optional } from '@nestjs/common';
 
 export class CallMetadataDto {
   @IsString()
-  callerId: string;
+  @Optional()
+  callerId?: string;
 
   @IsString()
-  callerName: string;
+  @Optional()
+  callerName?: string;
 
   @IsString()
   sessionId: string;

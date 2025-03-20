@@ -113,9 +113,11 @@ export class AudioSocketService implements OnModuleInit {
 
       // Try to get the call session from the service using the sessionId
       const callSession = this.callSessionService.getSession(sessionId);
+
+      console.log('callSession', callSession);
       if (!callSession) {
         this.logger.error(`[${sessionId}] Call session not found`);
-        return;
+        throw new Error('Call session not found');
       } else {
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
@@ -125,11 +127,12 @@ export class AudioSocketService implements OnModuleInit {
       }
 
       this.logger.log(
-        `[${sessionId}] Active calls: ${this.callSessionService.getActiveSessions.length}`,
+        `[${sessionId}] Active calls: ${this.callSessionService.getActiveSessions().length}`,
       );
 
       const audioStream = new PassThrough();
 
+      // data is a buffer audio frames that came from the outboundStream.write()
       outboundStream.onData((data) => {
         audioStream.write(data);
       });
@@ -140,7 +143,7 @@ export class AudioSocketService implements OnModuleInit {
           // Remove the call from our map when it is closed
           this.callSessionService.deleteSession(sessionId);
           this.logger.log(
-            `[${sessionId}] Call ended. Active calls: ${this.callSessionService.getActiveSessions.length}`,
+            `[${sessionId}] Call ended. Active calls: ${this.callSessionService.getActiveSessions().length}`,
           );
         }
         audioStream.end();
@@ -218,11 +221,11 @@ export class AudioSocketService implements OnModuleInit {
         );
         sttStream.write(data.audioData);
       } else if (isSpeaking && data.speech.state) {
-        this.logger.log(`[${callSessionId}] Still Speaking`);
+        // this.logger.log(`[${callSessionId}] Still Speaking`);
         // Continue writing audio chunks during speech
         sttStream.write(data.audioData);
       } else if (data.speech.end && isSpeaking) {
-        this.logger.log(`[${callSessionId}] End Speaking`);
+        // this.logger.log(`[${callSessionId}] End Speaking`);
         isSpeaking = false;
         sttStream.end();
       }
@@ -352,7 +355,7 @@ export class AudioSocketService implements OnModuleInit {
         ) {
           callSession.isPlaying = false;
           callSession.playbackTimeoutId = null;
-          this.logger.log(`[${callSessionId}] Finished streaming synthesized`);
+          this.logger.log(`[${callSessionId}] Finished synthesizing`);
           return;
         }
 
@@ -363,7 +366,7 @@ export class AudioSocketService implements OnModuleInit {
         // Write the frame to the outbound stream
         callSession.outboundStream.write(frame);
 
-        // Store timeout ID in call-specific context
+        // Schedule the next frame
         callSession.playbackTimeoutId = setTimeout(sendFrame, 20);
       };
 
