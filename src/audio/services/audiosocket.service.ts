@@ -47,7 +47,7 @@ export class AudioSocketService implements OnModuleInit {
       'RACHEL_TENANT_ID',
       '0',
     );
-    this.rachelTenantId = this.configService.get<string>('RACHEL_ID', '0');
+    this.rachelId = this.configService.get<string>('RACHEL_ID', '0');
     const languageSpeechText = this.configService.get<string>(
       'LANGUAGE_SPEECH_TO_TEXT',
       'en-us',
