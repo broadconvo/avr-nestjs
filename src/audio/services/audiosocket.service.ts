@@ -133,6 +133,11 @@ export class AudioSocketService implements OnModuleInit {
           .then((res) => {
             this.rachelId = res.data.data.rachel_id;
             this.rachelTenantId = res.data.data.tenant_id;
+          })
+          .catch((err) => {
+            this.logger.error(
+              `[${sessionId}] Error getting rachel_id and tenant_id: ${err.message}`,
+            );
           });
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
