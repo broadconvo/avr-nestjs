@@ -121,7 +121,6 @@ export class AudioSocketService implements OnModuleInit {
       } else {
         // Update the call session with the new outbound stream
         callSession.outboundStream = outboundStream;
-        this.callSessionService.updateSession(sessionId, { outboundStream });
         this.logger.log(
           `[${sessionId}] Call session found and updated with new outbound stream`,
         );
