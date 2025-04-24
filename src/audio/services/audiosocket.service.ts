@@ -177,10 +177,14 @@ export class AudioSocketService implements OnModuleInit {
         this.logger.error(`[${sessionId}] AudioSocket error: `, err);
       });
 
+      // if there is callerId in metadata, then add Hi {customerName} to the audio greeting
+      let audioGreeting = this.audioGreetings;
+      if (callSession.metadata.callerId) {
+        audioGreeting = `Hi ${callSession.metadata.callerName}, ${audioGreeting}`;
+      }
       // wait 0.5seconds before playing greetings audio
       setTimeout(
-        async () =>
-          await this.synthesizeAndPlay(callSession, this.audioGreetings),
+        async () => await this.synthesizeAndPlay(callSession, audioGreeting),
         500,
       );
 
