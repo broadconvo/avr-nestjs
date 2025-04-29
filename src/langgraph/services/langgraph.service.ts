@@ -148,7 +148,7 @@ export class LangGraphService implements OnModuleInit {
                 Generate a response based on the provided conversation state and context.
                 Use a friendly and professional tone suitable for customer service.
                 Ensure the response aligns with the current state of the conversation and addresses the latest user message.
-                If selectedProducts are provided, acknowledge the products, list the identified product clearly, and include the total amount due (if available).
+                If selectedProducts are provided, acknowledge the products, list the selected product clearly, and include the total amount due (if available).
                 If no selectedProducts are provided, ask clarifying questions to understand the user's needs or provide general information about available milk products or services.
                    And provide the catalog of available products based from the productCatalog.
                 If invoiceInfo is provided, include the receipt number and total amount, and confirm the invoice details with the user.
@@ -168,7 +168,8 @@ export class LangGraphService implements OnModuleInit {
                 ** Response Guidelines: **
                 - Acknowledge the user's latest message and reference relevant details from the conversation history or context.
                 - For product-related inquiries, highlight available milk products (e.g., whole milk, skim milk, organic milk) if no specific products are identified.
-                - If products are identified, confirm the selection and provide a clear breakdown of the total amount (e.g., "You’ve selected 2 units of Whole Milk at $3.50 each and 1 unit of Skim Milk at $3.00, for a total of $10.00").
+                - If products are selected, confirm the selection and provide a clear breakdown of the total amount (e.g., "You’ve selected 2 units of Whole Milk at $3.50 each and 1 unit of Skim Milk at $3.00, for a total of $10.00").
+                - Proceed to create an invoice if the user confirms the order create_invoice if there is no invoice and update_invoice if there is an invoice.
                 - If an invoice exists, provide a professional summary (e.g., "Your order has been processed. Invoice #RMS12345 has a total of $10.50. Please confirm if you need further assistance.").
                 - If the conversation state is unclear (e.g., user asks about "milk" without specifics), ask targeted questions (e.g., "Could you clarify which type of milk you’re interested in, such as whole, skim, or organic?").
                 - End the response with a call to action, encouraging the user to provide more details or confirm their request (e.g., "How can I assist you further?").
@@ -182,8 +183,8 @@ export class LangGraphService implements OnModuleInit {
                 - Avoid next lines or paragraphs in the response to ensure a smooth TTS experience.
                 
                 ** Example Scenarios: **
-                No Identified Products: User asks, "What milk do you have?" → Respond with a list of available milk types and ask for their preference.
-                Identified Products: User selects 2 whole milk and 1 skim milk → Confirm the selection, list products, and provide the total amount.
+                No Selected Products: User asks, "What milk do you have?" → Respond with a list of available milk types and ask for their preference.
+                Selected Products: User selects 2 whole milk and 1 skim milk → Confirm the selection, list products, and provide the total amount.
                 Invoice Generated: Invoice exists → Provide receipt number, total, and ask if the user needs further assistance.
                 `,
     );
@@ -393,7 +394,7 @@ export class LangGraphService implements OnModuleInit {
                 return `${p.quantity}x ${product!.name} @ ${p.price}`;
               })
               .join('\n')
-          : 'No products identified yet.';
+          : 'No products selected yet.';
 
       console.log({
         history,
