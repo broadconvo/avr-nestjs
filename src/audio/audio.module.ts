@@ -5,9 +5,10 @@ import { AudioSocketService } from './services/audiosocket.service';
 import { ConfigModule } from '@nestjs/config';
 import { ContactLookupController } from './controllers/contact-lookup.controller';
 import { ContactLookupService } from './services/contact-lookup.service';
+import { LangGraphModule } from '../langgraph/langgraph.module';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, LangGraphModule],
   controllers: [CallsController, ContactLookupController],
   providers: [AudioSocketService, CallSessionService, ContactLookupService],
   exports: [AudioSocketService, CallSessionService, ContactLookupService],

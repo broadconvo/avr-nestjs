@@ -11,6 +11,7 @@ import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { CallSessionService } from './call-session.service';
 import { CallSession } from '../entities/call-session.entity';
+import { LangGraphService } from '../../langgraph/services/langgraph.service';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -34,6 +35,7 @@ export class AudioSocketService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly callSessionService: CallSessionService,
+    private readonly langGraphService: LangGraphService,
   ) {
     this.rachelUrl = this.configService.get<string>(
       'RACHEL_URL',
@@ -282,10 +284,17 @@ export class AudioSocketService implements OnModuleInit {
       // Stop any ongoing playback
       this.interruptPlayback(callSession);
 
-      const assistantResponse = await this.sendToAssistant(
+      // Send the transcription to rachel assistant
+      // const assistantResponse = await this.sendToAssistant(
+      //   callSession,
+      //   transcription,
+      // );
+
+      const assistantResponse = await this.sendToLangGraph(
         callSession,
         transcription,
       );
+
       await this.synthesizeAndPlay(callSession, assistantResponse);
     } else {
       this.logger.log(`[${callSessionId}] Nothing to transcribe`);
@@ -332,6 +341,39 @@ export class AudioSocketService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `[${callSessionId} Error sending to Rachel (OpenAI): ${error.message}`,
+      );
+      return this.audioError;
+    }
+  }
+
+  private async sendToLangGraph(
+    callSession: CallSession,
+    transcription: string,
+  ): Promise<string> {
+    const callSessionId = callSession.metadata.sessionId;
+    try {
+      this.interruptPlayback(callSession); // Stop any ongoing playback
+      this.logger.log(
+        `[${callSessionId}] Sending to LangGraph: ${transcription}`,
+      );
+
+      // Send the transcription to LangGraph
+      const result = await this.langGraphService.processMessage(
+        transcription,
+        callSession.metadata,
+      );
+
+      // If an invoice was created, store it in the call session
+      if (result.invoiceId) {
+        this.logger.log(
+          `[${callSessionId}] Invoice created with ID: ${result.invoiceId}`,
+        );
+      }
+
+      return result.response;
+    } catch (error) {
+      this.logger.error(
+        `[${callSessionId}] Error sending to LangGraph: ${error.message}`,
       );
       return this.audioError;
     }
