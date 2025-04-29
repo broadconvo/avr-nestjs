@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
 
 // Conversation States
 export type ConversationState =
@@ -18,19 +19,20 @@ export interface Product {
   category: string;
 }
 
-export interface IdentifiedProduct {
+export interface SelectedProduct {
+  productId: string;
   productName: string;
   quantity: number;
-  confidence: number;
+  price: string;
 }
 
 // State Types
 export interface GraphState {
   messages: string[];
-  context: Record<string, any>;
+  context: CallMetadataDto;
   currentResponse: string;
   conversationState: ConversationState;
-  identifiedProducts: IdentifiedProduct[];
+  selectedProducts: SelectedProduct[];
   invoiceId?: string;
 }
 
@@ -50,9 +52,10 @@ export const stateOutputSchema = z.object({
 export const productOutputSchema = z.object({
   products: z.array(
     z.object({
+      productId: z.string(),
       productName: z.string(),
       quantity: z.number().default(1),
-      confidence: z.number().min(0).max(1),
+      price: z.string(),
     }),
   ),
   needsMoreInfo: z.boolean(),
@@ -67,7 +70,7 @@ export interface DetermineStateReturn {
 }
 
 export interface IdentifyProductsReturn {
-  identifiedProducts: IdentifiedProduct[];
+  selectedProducts: SelectedProduct[];
 }
 
 export interface CreateInvoiceReturn {

@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { ProductService } from './product.service';
 import { InvoiceService } from './invoice.service';
 import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
+import { ConversationState, GraphState } from '../types/graph.types';
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
@@ -33,7 +34,7 @@ export class LangGraphService implements OnModuleInit {
     this.model = new ChatOpenAI({
       openAIApiKey: this.configService.get<string>('OPENAI_API_KEY'),
       model: openAiModel,
-      temperature: 0.2, // Lower temperature for more deterministic outputs
+      temperature: 0, // Lower temperature for more deterministic outputs
     });
 
     // Create the graph
@@ -43,8 +44,15 @@ export class LangGraphService implements OnModuleInit {
   }
 
   private initializeGraph() {
+    /**
+     * ----------------------------------------------------------------
+     * Prompts - Used by the graph to determine the current state of conversation
+     * ----------------------------------------------------------------
+     * Analyze Message State: Analyzes the message and determines the next state.
+     * Generate Response State: Generates a response based on the current state.
+     */
     // Define output parsers
-    const stateOutputParser = StructuredOutputParser.fromZodSchema(
+    const analyzeOutputParser = StructuredOutputParser.fromZodSchema(
       z.object({
         nextState: z.enum([
           'greeting',
@@ -55,16 +63,12 @@ export class LangGraphService implements OnModuleInit {
           'farewell',
         ]),
         reasoning: z.string(),
-      }),
-    );
-
-    const productOutputParser = StructuredOutputParser.fromZodSchema(
-      z.object({
         products: z.array(
           z.object({
+            productId: z.string(),
             productName: z.string(),
             quantity: z.number().default(1),
-            confidence: z.number().min(0).max(1),
+            price: z.number().default(1),
           }),
         ),
         needsMoreInfo: z.boolean(),
@@ -76,141 +80,142 @@ export class LangGraphService implements OnModuleInit {
     const productCatalog = allProducts
       .map(
         (p) =>
-          `ID: ${p.id}, Name: ${p.name}, Description: ${p.description}, Price: ${p.price}, Category: ${p.category}`,
+          `- ID: ${p.id}, Name: ${p.name}, Description: ${p.description}, Price: ${p.price}, Category: ${p.category}`,
       )
       .join('\n');
 
-    // 1. Determine the conversation state
-    const determineState = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `Based on the conversation history and the latest user message, determine the next state of the conversation.
-        
-        Conversation history: {history}
-        Latest user message: {message}
-        Current state: {currentState}
-        
-        Possible states:
-        - greeting: Initial greeting or introduction
-        - understanding_problem: Trying to understand the user's problem or request
-        - product_identification: Identifying products mentioned by the user
-        - invoice_creation: Creating an invoice based on identified products
-        - providing_solution: Providing a solution or answer to the user
-        - farewell: Ending the conversation
-        
-        {format_instructions}`,
-      ),
+    const analyzeMessagePromptTemplate =
+      ChatPromptTemplate.fromTemplate(`You are a customer service assistant for a milk company. 
+        Your role is to analyze the latest user message within the context of 
+        the conversation history and current state to determine the most 
+        appropriate next state and identify any products mentioned from 
+        the provided catalog. Additionally, handle queries about available 
+        products by listing all items in the catalog when appropriate. 
+        Follow these instructions carefully:
+            
+        ** Product Catalog: **
+        ${productCatalog}
+    
+        ** Inputs: ** 
+        - ** Conversation history: ** {history} (A summary or log of previous messages in the conversation)
+        - ** Latest User Message: ** {message} (The most recent message from the user)
+        - ** Current State: ** {currentState} (The current stage of the conversation, e.g., greeting, understanding_problem)
+    
+        **Task:**
+        1. **Determine the Next State:** Based on the latest user message and conversation context, select the most appropriate next state from the following:
+           - greeting: Initial interaction or welcoming the user
+           - understanding_problem: Clarifying or gathering details about the user's issue or query
+           - product_identification: Identifying and confirming products mentioned by the user. Providing a list of all products in the catalog (e.g., when asked "What products do you have?")
+           - invoice_creation: Generating or discussing an invoice based on mentioned confirmed products
+           - providing_solution: Offering a solution or answering the user's query
+           - farewell: Concluding the conversation
+        2. **Handle Product Queries:**
+           - If the user asks about available products (e.g., "What products do you have?" or "What do you sell?"):
+             - Transition to the "product_identification" state.
+             - List all products in the catalog with their ID, Name, Description, and Price.
+             - Do not include quantities unless specified by the user.
+           - If specific products are mentioned in the latest user message or conversation history:
+             - Transition to the "product_identification" state.
+             - List each mentioned product with its ID, Name, Quantity (if specified, default to 1 if not), and Price.
+             - If a product is referenced ambiguously (e.g., "formula for babies"), match it to the most relevant 
+                product based on the description or category and explain the assumption.
+           - If no products are mentioned and the query is not about available products, return an empty product list.
+           - Stick with the price from the catalog.
+        3. **Handle Edge Cases:**
+           - If the user message is unclear or off-topic, transition to the "understanding_problem" state to seek clarification.
+           - If the user requests to end the conversation, transition to the "farewell" state.
+           - If the current state is invalid (not one of the defined states), default to "greeting".
+           - Ensure responses only reference products in the provided catalog, not generic or unlisted products.
+
+        **Output Format:** {format_instructions}`);
+    const analyzeMessagePrompt = RunnableSequence.from([
+      analyzeMessagePromptTemplate,
       this.model,
-      stateOutputParser,
+      analyzeOutputParser,
     ]);
 
-    // 2. Identify products mentioned in the conversation
-    const identifyProducts = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `You are a product identification assistant. Identify any products mentioned in the conversation.
-        
-        Product Catalog:
-        ${productCatalog}
-        
-        Conversation history: {history}
-        Latest user message: {message}
-        
-        Identify any products from our catalog that the user is talking about, including quantities if mentioned.
-        If you're not sure about a product, indicate a lower confidence score.
-        
-        {format_instructions}`,
-      ),
-      this.model,
-      productOutputParser,
-    ]);
+    const generateResponsePromptTemplate = ChatPromptTemplate.fromTemplate(
+      `You are a professional customer service assistant for a company 
+                that sells milk and related products for RMS (Retail Milk Solutions). 
+                Your goal is to provide accurate, polite, and concise responses 
+                tailored to the user's needs. Follow the instructions and guidelines carefully.
+
+                Prompt Instructions:
+                
+                Generate a response based on the provided conversation state and context.
+                Use a friendly and professional tone suitable for customer service.
+                Ensure the response aligns with the current state of the conversation and addresses the latest user message.
+                If selectedProducts are provided, acknowledge the products, list the identified product clearly, and include the total amount due (if available).
+                If no selectedProducts are provided, ask clarifying questions to understand the user's needs or provide general information about available milk products or services.
+                   And provide the catalog of available products based from the productCatalog.
+                If invoiceInfo is provided, include the receipt number and total amount, and confirm the invoice details with the user.
+                If any required information (e.g., history, currentState, context, selectedProducts, invoiceInfo) is missing or unclear, politely request clarification from the user to proceed effectively.
+                Avoid making assumptions about unavailable data, such as product prices or invoice details, unless explicitly provided.
+                Do not generate responses longer than necessary, but ensure they are complete and actionable.
+                
+                ** Input Parameters: **
+                ** Conversation history: ** {history}
+                ** Latest user message: ** {message}
+                ** Current state: {currentState} (e.g., inquiry, product selection, order confirmation, invoice generated)
+                ** Context: ** {context} (e.g., user is inquiring about milk types, placing an order, or requesting invoice details)
+                ** Selected Products: ** {selectedProducts} (e.g., 1x Infant Milk - $299.99) This is what the user has selected from the catalog
+                ** Product Catalog: ** {productCatalog} (e.g., list of available milk products with prices)
+                ** Invoice Information: ** {invoiceInfo}
+                
+                ** Response Guidelines: **
+                - Acknowledge the user's latest message and reference relevant details from the conversation history or context.
+                - For product-related inquiries, highlight available milk products (e.g., whole milk, skim milk, organic milk) if no specific products are identified.
+                - If products are identified, confirm the selection and provide a clear breakdown of the total amount (e.g., "You’ve selected 2 units of Whole Milk at $3.50 each and 1 unit of Skim Milk at $3.00, for a total of $10.00").
+                - If an invoice exists, provide a professional summary (e.g., "Your order has been processed. Invoice #RMS12345 has a total of $10.50. Please confirm if you need further assistance.").
+                - If the conversation state is unclear (e.g., user asks about "milk" without specifics), ask targeted questions (e.g., "Could you clarify which type of milk you’re interested in, such as whole, skim, or organic?").
+                - End the response with a call to action, encouraging the user to provide more details or confirm their request (e.g., "How can I assist you further?").
+                Text-to-Speech Optimization:
+                - Write responses in clear, simple, and conversational English to ensure natural TTS output.
+                - Avoid special characters (e.g., #, *, &, %, @) in words or numbers to prevent mispronunciation.
+                - Use numerals for numbers (e.g., “2 liters” instead of “two liters”) for consistent TTS rendering.
+                - Avoid abbreviations (e.g., use “liters” instead of “L”) unless they are widely understood and pronounceable.
+                - Ensure proper punctuation (e.g., periods, commas) to guide TTS pausing and intonation.
+                - Avoid jargon, emojis, or symbols that could result in “garbage words” when spoken.
+                - Avoid next lines or paragraphs in the response to ensure a smooth TTS experience.
+                
+                ** Example Scenarios: **
+                No Identified Products: User asks, "What milk do you have?" → Respond with a list of available milk types and ask for their preference.
+                Identified Products: User selects 2 whole milk and 1 skim milk → Confirm the selection, list products, and provide the total amount.
+                Invoice Generated: Invoice exists → Provide receipt number, total, and ask if the user needs further assistance.
+                `,
+    );
 
     // 3. Generate response based on state
-    const generateResponse = RunnableSequence.from([
-      ChatPromptTemplate.fromTemplate(
-        `You are a helpful customer service assistant for a company that sells milk.
-        Generate a response based on the conversation state.
-        
-        Conversation history: {history}
-        Latest user message: {message}
-        Current state: {currentState}
-        Context: {context}
-        Identified Products: {identifiedProducts}
-        Invoice Information: {invoiceInfo}
-        
-        Your response should be appropriate for the current state of the conversation.
-        If products have been identified, acknowledge them in your response.
-        If an invoice has been created, provide the receipt number and total.`,
-      ),
+    const generateResponsePrompt = RunnableSequence.from([
+      generateResponsePromptTemplate,
       this.model,
       new StringOutputParser(),
     ]);
 
-    // 4. Create the state graph
-    const stateGraphChannels = {
-      messages: {
-        value: [],
-        reducer: (curr: any, newVal: any) => [...curr, newVal],
-      },
-      context: {
-        value: {},
-        reducer: (curr: any, newVal: any) => ({ ...curr, ...newVal }),
-      },
-      currentResponse: {
-        value: '',
-        reducer: (_: any, newVal: any) => newVal,
-      },
-      conversationState: {
-        value: 'greeting' as const,
-        reducer: (_: any, newVal: any) => newVal,
-      },
-      identifiedProducts: {
-        value: [],
-        reducer: (curr: any, newVal: any) => [...curr, ...newVal],
-      },
-      invoiceId: {
-        value: undefined,
-        reducer: (_: any, newVal: any) => newVal,
-      },
-    };
+    /**
+     * ----------------------------------------------------------------
+     * Nodes - Used by the graph to define the actions taken at each state
+     * ----------------------------------------------------------------
+     * Analyze Message Node: Analyzes the message and determines the next state.
+     * Identify Products Node: Identifies products mentioned in the message.
+     * Create Invoice Node: Creates an invoice based on identified products.
+     */
 
-    // Define the graph structure for the flight booking process
-    // @ts-ignore
-    const langgraphBuilder = new StateGraph({
-      channels: stateGraphChannels,
-    });
-
-    // 5. Add nodes to the graph
-    const determineStateNode = async (state: {
-      messages: string[];
-      conversationState: string;
-    }) => {
+    const analyzeMessageNode = async (state: GraphState) => {
       const history = state.messages.slice(0, -1).join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
-      const stateResult = await determineState.invoke({
+      const analysisResult = await analyzeMessagePrompt.invoke({
+        // Call the new runnable
         history,
         message: lastMessage,
         currentState: state.conversationState,
-        format_instructions: stateOutputParser.getFormatInstructions(),
+        format_instructions: analyzeOutputParser.getFormatInstructions(),
       });
 
-      return { conversationState: stateResult.nextState };
-    };
-
-    const identifyProductsNode = async (state: {
-      messages: string[];
-      conversationState: string;
-    }) => {
-      const history = state.messages.join('\n');
-      const lastMessage = state.messages[state.messages.length - 1];
-
-      const productResult = await identifyProducts.invoke({
-        history,
-        message: lastMessage,
-        format_instructions: productOutputParser.getFormatInstructions(),
-      });
-
+      console.log('analyzeMessageNode', analysisResult);
       // Map identified product names to actual product IDs
-      const identifiedProducts = productResult.products
+      const selectedProducts = (analysisResult.products || [])
         .map((p) => {
           const matchedProducts = this.productService.searchProducts(
             p.productName,
@@ -218,31 +223,23 @@ export class LangGraphService implements OnModuleInit {
           if (matchedProducts.length > 0) {
             return {
               productId: matchedProducts[0].id,
+              productName: matchedProducts[0].name,
               quantity: p.quantity,
-              confidence: p.confidence,
+              price: p.price,
             };
           }
           return null;
         })
         .filter((p) => p !== null);
 
-      return { identifiedProducts };
+      return {
+        conversationState: analysisResult.nextState,
+        selectedProducts: selectedProducts, // Update state with products found here
+      };
     };
 
-    const createInvoiceNode = (state: {
-      messages: string[];
-      conversationState: string;
-      identifiedProducts: any[];
-      context: CallMetadataDto;
-    }) => {
-      // Only create invoice if we have identified products with high confidence
-      const highConfidenceProducts = state.identifiedProducts.filter(
-        (p) => p.confidence > 0.7,
-      );
-
-      if (highConfidenceProducts.length === 0) {
-        return {}; // No products to create invoice for
-      }
+    const createInvoiceNode = (state: GraphState) => {
+      this.logger.log('Creating invoice...');
 
       // Get customer info from context
       const customerId = state.context.callerId || 'unknown';
@@ -250,7 +247,7 @@ export class LangGraphService implements OnModuleInit {
       const customerPhone = state.context.callerPhone || '';
 
       // Create order items
-      const orderItems = highConfidenceProducts.map((p) => {
+      const orderItems = state.selectedProducts.map((p) => {
         const product = this.productService.getProductById(p.productId);
         if (!product) {
           this.logger.warn(`Product with ID ${p.productId} not found.`);
@@ -284,20 +281,13 @@ export class LangGraphService implements OnModuleInit {
       return { invoiceId: invoice.id };
     };
 
-    const generateResponseNode = async (state: {
-      messages: string[];
-      identifiedProducts: Array<{
-        productId: string;
-        quantity: number;
-        confidence: number;
-      }>;
-      conversationState: string;
-      context: CallMetadataDto;
-    }) => {
+    const generateResponseNode = async (state: GraphState) => {
+      this.logger.log('Generating response...');
       const history = state.messages.slice(0, -1).join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
       // Get invoice information if available
+      console.log('generateResponseNode', JSON.stringify(state, null, 4));
       let invoiceInfo = 'No invoice created yet.';
       if (state.context.invoiceId) {
         const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
@@ -312,44 +302,108 @@ export class LangGraphService implements OnModuleInit {
         }
       }
 
-      // Format identified products for the prompt
-      const identifiedProductsText =
-        state.identifiedProducts.length > 0
-          ? state.identifiedProducts
+      // Format selected products for the prompt
+      const selectedProductsText =
+        state.selectedProducts.length > 0
+          ? state.selectedProducts
               .map((p) => {
                 const product = this.productService.getProductById(p.productId);
-                return `${p.quantity}x ${product!.name} (Confidence: ${(p.confidence * 100).toFixed(0)}%)`;
+                return `${p.quantity}x ${product!.name} @ ${p.price}`;
               })
               .join('\n')
           : 'No products identified yet.';
 
-      const response = await generateResponse.invoke({
+      console.log({
         history,
         message: lastMessage,
         currentState: state.conversationState,
         context: JSON.stringify(state.context),
-        identifiedProducts: identifiedProductsText,
+        selectedProducts: selectedProductsText,
+        productCatalog: productCatalog,
+        invoiceInfo,
+      });
+      const response = await generateResponsePrompt.invoke({
+        history,
+        message: lastMessage,
+        currentState: state.conversationState,
+        context: JSON.stringify(state.context),
+        selectedProducts: selectedProductsText,
+        productCatalog: productCatalog,
         invoiceInfo,
       });
 
       return { currentResponse: response };
     };
 
-    langgraphBuilder.addNode('determine_state', determineStateNode);
-    langgraphBuilder.addNode('identify_products', identifyProductsNode);
+    /**
+     * ----------------------------------------------------------------
+     * Graphs = Used by the graph to define the flow of conversation
+     * ----------------------------------------------------------------
+     * Analyze Message Node: Analyzes the message and determines the next state.
+     * Identify Products Node: Identifies products mentioned in the message.
+     * Create Invoice Node: Creates an invoice based on identified products.
+     */
+    // 4. Create the state graph
+    const stateGraphChannels = {
+      messages: {
+        value: [],
+        reducer: (curr: any, newVal: any) => [...curr, newVal],
+      },
+      context: {
+        value: {},
+        reducer: (curr: any, newVal: any) => ({ ...curr, ...newVal }),
+      },
+      currentResponse: {
+        value: '',
+        reducer: (_: any, newVal: any) => newVal,
+      },
+      conversationState: {
+        value: 'greeting' as const,
+        reducer: (_: any, newVal: any) => newVal,
+      },
+      selectedProducts: {
+        value: [],
+        reducer: (curr: any, newVal: any) => [...curr, ...newVal],
+      },
+      invoiceId: {
+        value: undefined,
+        reducer: (_: any, newVal: any) => newVal,
+      },
+    };
+
+    // Define the graph structure
+    // @ts-ignore
+    const langgraphBuilder = new StateGraph({
+      channels: stateGraphChannels,
+    });
+    langgraphBuilder.addNode('analyze_message', analyzeMessageNode);
     langgraphBuilder.addNode('create_invoice', createInvoiceNode);
     langgraphBuilder.addNode('generate_response', generateResponseNode);
     // 7. Add edges to connect the nodes
     langgraphBuilder.addConditionalEdges(
       // @ts-ignore
-      'determine_state',
-      ({ conversationState }) => {
+      'analyze_message',
+      (state: GraphState) => {
+        this.logger.log(
+          'Analyze message state... : ' + state.conversationState,
+        );
         // Route based on the determined state
-        switch (conversationState) {
-          case 'product_identification':
-            return 'identify_products';
-          case 'invoice_creation':
-            return 'create_invoice';
+        // If products were identified AND state suggests invoice...
+        if (
+          state.conversationState === 'invoice_creation' &&
+          state.selectedProducts.length > 0
+        ) {
+          return 'create_invoice';
+        }
+
+        // Add other conditions based on state.conversationState
+        // Maybe route back to analyze_message if needsMoreInfo?
+        // Or directly to generate_response
+        switch (state.conversationState) {
+          // case 'product_identification': // This state might mean "ask clarifying questions" now
+          //   return 'generate_response';
+          case 'invoice_creation': // If no products, maybe ask again?
+            return 'generate_response'; // Or a specific "clarify products" node
           default:
             return 'generate_response';
         }
@@ -357,11 +411,9 @@ export class LangGraphService implements OnModuleInit {
     );
 
     // @ts-ignore
-    langgraphBuilder.addEdge('identify_products', 'create_invoice');
-    // @ts-ignore
     langgraphBuilder.addEdge('create_invoice', 'generate_response');
     // @ts-ignore
-    langgraphBuilder.setEntryPoint('determine_state');
+    langgraphBuilder.setEntryPoint('analyze_message');
 
     this.graph = langgraphBuilder.compile();
   }
@@ -370,11 +422,11 @@ export class LangGraphService implements OnModuleInit {
   async processMessage(message: string, context: any = {}) {
     try {
       // Initialize the state with the message and context
-      const initialState: ConversationState = {
+      const initialState: GraphState = {
         currentResponse: '',
         messages: [message],
         conversationState: 'greeting',
-        identifiedProducts: [],
+        selectedProducts: [],
         context: context,
       };
 
@@ -384,7 +436,7 @@ export class LangGraphService implements OnModuleInit {
       return {
         response: result.currentResponse,
         state: result.conversationState,
-        identifiedProducts: result.identifiedProducts,
+        selectedProducts: result.selectedProducts,
         invoiceId: result.invoiceId,
       };
     } catch (error) {

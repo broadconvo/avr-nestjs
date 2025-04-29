@@ -83,12 +83,16 @@ export class InvoiceService {
 
     // Generate a receipt number based on date and invoice ID
     const date = new Date();
-    const receiptNumber = `RCV-${date.getFullYear()}${(date.getMonth() + 1)
-      .toString()
-      .padStart(
-        2,
-        '0',
-      )}${date.getDate().toString().padStart(2, '0')}-${invoiceId.substring(0, 6)}`;
+    const timestamp = (
+      date.getFullYear() +
+      date.getMonth() +
+      date.getDate() +
+      date.getHours() +
+      date.getMinutes() +
+      date.getSeconds()
+    ).toString();
+
+    const receiptNumber = `RMS-${timestamp}`;
 
     // Update the invoice with the receipt number
     invoice.receiptNumber = receiptNumber;
