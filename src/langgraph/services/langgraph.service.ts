@@ -513,6 +513,7 @@ export class LangGraphService implements OnModuleInit {
   // Add this method to the LangGraphService class
   async processMessage(message: string, context: CallMetadataDto) {
     try {
+      console.log('processMessage - messages', context.messages);
       // Initialize the state with the message and context
       const initialState: GraphState = {
         currentResponse: '',
