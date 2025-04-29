@@ -7,6 +7,7 @@ export type ConversationState =
   | 'understanding_problem'
   | 'product_identification'
   | 'invoice_creation'
+  | 'invoice_update'
   | 'providing_solution'
   | 'farewell';
 
@@ -43,6 +44,7 @@ export const stateOutputSchema = z.object({
     'understanding_problem',
     'product_identification',
     'invoice_creation',
+    'invoice_update',
     'providing_solution',
     'farewell',
   ]),

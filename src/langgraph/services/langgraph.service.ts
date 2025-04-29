@@ -13,6 +13,7 @@ import { ProductService } from './product.service';
 import { InvoiceService } from './invoice.service';
 import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
 import { ConversationState, GraphState } from '../types/graph.types';
+import { OrderItem } from '../interfaces/order-item';
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
@@ -59,6 +60,7 @@ export class LangGraphService implements OnModuleInit {
           'understanding_problem',
           'product_identification',
           'invoice_creation',
+          'invoice_update',
           'providing_solution',
           'farewell',
         ]),
@@ -107,6 +109,7 @@ export class LangGraphService implements OnModuleInit {
            - understanding_problem: Clarifying or gathering details about the user's issue or query
            - product_identification: Identifying and confirming products mentioned by the user. Providing a list of all products in the catalog (e.g., when asked "What products do you have?")
            - invoice_creation: Generating or discussing an invoice based on mentioned confirmed products
+           - invoice_update: Updating or modifying an existing invoice
            - providing_solution: Offering a solution or answering the user's query
            - farewell: Concluding the conversation
         2. **Handle Product Queries:**
@@ -281,6 +284,85 @@ export class LangGraphService implements OnModuleInit {
       return { invoiceId: invoice.id };
     };
 
+    const updateInvoiceNode = (state: GraphState) => {
+      this.logger.log('Updating invoice...');
+
+      // 1. Get the invoice ID from the state
+      // Assumes the invoiceId is stored directly in the state channel.
+      // If it's stored in context, use state.context.invoiceId
+      const invoiceId = state.invoiceId;
+
+      if (!invoiceId) {
+        this.logger.error(
+          'Cannot update invoice: No invoice ID found in state.',
+        );
+        // Return an empty object or specific error state if your graph handles it
+        return {
+          currentResponse: 'Sorry, I could not find an invoice to update.',
+        };
+      }
+
+      // 2. Check if there are products to update with (as per conditional edge logic)
+      if (!state.selectedProducts || state.selectedProducts.length === 0) {
+        this.logger.warn(
+          `Attempted to update invoice ${invoiceId} but no products were selected in the current state transition.`,
+        );
+        // This might indicate a logic error in the graph flow or state management
+        return {
+          currentResponse:
+            'It seems no products were selected to update the invoice with.',
+        };
+      }
+
+      // 3. Prepare the updated items based on selectedProducts from the state
+      const updatedOrderItems = state.selectedProducts
+        .map((p) => {
+          const product = this.productService.getProductById(p.productId);
+          if (!product) {
+            this.logger.warn(
+              `Product with ID ${p.productId} not found during invoice update for invoice ${invoiceId}. Skipping item.`,
+            );
+            return null; // Skip if product is not found
+          }
+          // Use the canonical price from the product service, not potentially stale price from state
+          return {
+            product,
+            quantity: p.quantity,
+            unitPrice: product.price,
+          };
+        })
+        // Filter out nulls and ensure type correctness
+        .filter((item): item is OrderItem => item !== null);
+
+      // 4. Call the updateInvoice service method
+      const updatedInvoice = this.invoiceService.updateInvoice(invoiceId, {
+        items: updatedOrderItems, // Update the items list
+        // You could potentially update other fields like 'notes' if captured in the state
+        // notes: state.context?.updateNotes || invoice.notes // Example
+      });
+
+      // 5. Handle the result
+      if (!updatedInvoice) {
+        this.logger.error(
+          `Failed to update invoice with ID: ${invoiceId}. Invoice not found or update failed.`,
+        );
+        // Clear the invoiceId in state if the update failed because it wasn't found?
+        return {
+          invoiceId: undefined,
+          currentResponse: `Sorry, I couldn't find or update the invoice with ID ${invoiceId}.`,
+        };
+      }
+
+      this.logger.log(
+        `Successfully updated invoice ${updatedInvoice.id}. New total: ${updatedInvoice.total}`,
+      );
+
+      // 6. Return the invoice ID (it shouldn't change, but returning confirms it)
+      // The reducer for invoiceId just replaces the value, so this keeps it consistent.
+      // We don't need to return currentResponse here as generate_response node handles that.
+      return { invoiceId: updatedInvoice.id };
+    };
+
     const generateResponseNode = async (state: GraphState) => {
       this.logger.log('Generating response...');
       const history = state.messages.slice(0, -1).join('\n');
@@ -378,6 +460,7 @@ export class LangGraphService implements OnModuleInit {
     });
     langgraphBuilder.addNode('analyze_message', analyzeMessageNode);
     langgraphBuilder.addNode('create_invoice', createInvoiceNode);
+    langgraphBuilder.addNode('update_invoice', updateInvoiceNode);
     langgraphBuilder.addNode('generate_response', generateResponseNode);
     // 7. Add edges to connect the nodes
     langgraphBuilder.addConditionalEdges(
@@ -394,6 +477,13 @@ export class LangGraphService implements OnModuleInit {
           state.selectedProducts.length > 0
         ) {
           return 'create_invoice';
+        }
+        // If invoice update state and products were selected
+        if (
+          state.conversationState === 'invoice_update' &&
+          state.selectedProducts.length > 0
+        ) {
+          return 'update_invoice';
         }
 
         // Add other conditions based on state.conversationState
@@ -412,6 +502,8 @@ export class LangGraphService implements OnModuleInit {
 
     // @ts-ignore
     langgraphBuilder.addEdge('create_invoice', 'generate_response');
+    // @ts-ignore
+    langgraphBuilder.addEdge('update_invoice', 'generate_response');
     // @ts-ignore
     langgraphBuilder.setEntryPoint('analyze_message');
 
