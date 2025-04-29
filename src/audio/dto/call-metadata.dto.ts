@@ -15,4 +15,7 @@ export class CallMetadataDto {
 
   @IsString()
   sessionId: string;
+
+  @Optional()
+  invoiceId?: string;
 }
