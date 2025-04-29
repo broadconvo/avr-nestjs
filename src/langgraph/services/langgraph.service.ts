@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
-import { START, StateGraph } from '@langchain/langgraph';
+import { StateGraph } from '@langchain/langgraph';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import {
@@ -11,9 +11,9 @@ import {
 import { z } from 'zod';
 import { ProductService } from './product.service';
 import { InvoiceService } from './invoice.service';
-import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
-import { ConversationState, GraphState } from '../types/graph.types';
+import { GraphState } from '../types/graph.types';
 import { OrderItem } from '../interfaces/order-item';
+import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
@@ -206,7 +206,7 @@ export class LangGraphService implements OnModuleInit {
      */
 
     const analyzeMessageNode = async (state: GraphState) => {
-      const history = state.messages.slice(0, -1).join('\n');
+      const history = state.messages.join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
       const analysisResult = await analyzeMessagePrompt.invoke({
@@ -366,11 +366,10 @@ export class LangGraphService implements OnModuleInit {
 
     const generateResponseNode = async (state: GraphState) => {
       this.logger.log('Generating response...');
-      const history = state.messages.slice(0, -1).join('\n');
+      const history = state.messages.join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
       // Get invoice information if available
-      console.log('generateResponseNode', JSON.stringify(state, null, 4));
       let invoiceInfo = 'No invoice created yet.';
       if (state.context.invoiceId) {
         const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
@@ -396,7 +395,7 @@ export class LangGraphService implements OnModuleInit {
               .join('\n')
           : 'No products selected yet.';
 
-      console.log({
+      console.log('generateResponseNode', {
         history,
         message: lastMessage,
         currentState: state.conversationState,
@@ -512,12 +511,12 @@ export class LangGraphService implements OnModuleInit {
   }
 
   // Add this method to the LangGraphService class
-  async processMessage(message: string, context: any = {}) {
+  async processMessage(message: string, context: CallMetadataDto) {
     try {
       // Initialize the state with the message and context
       const initialState: GraphState = {
         currentResponse: '',
-        messages: [message],
+        messages: [...context.messages!, `User: ${message}`],
         conversationState: 'greeting',
         selectedProducts: [],
         context: context,
@@ -526,11 +525,13 @@ export class LangGraphService implements OnModuleInit {
       // Execute the graph with the initial state
       const result = await this.graph.invoke(initialState);
 
+      console.log('processMessage', result);
       return {
         response: result.currentResponse,
         state: result.conversationState,
         selectedProducts: result.selectedProducts,
         invoiceId: result.invoiceId,
+        messages: [...result.messages, `Agent: ${result.currentResponse}`], // collect messages
       };
     } catch (error) {
       this.logger.error(

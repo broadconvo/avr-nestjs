@@ -366,6 +366,7 @@ export class AudioSocketService implements OnModuleInit {
       console.log('sendToLangGraph Audiosocket', result);
       // If an invoice was created, store it in the call session
       if (result.invoiceId) {
+        callSession.metadata.messages = result.messages;
         callSession.metadata.invoiceId = result.invoiceId;
         this.logger.log(
           `[${callSessionId}] Invoice created with ID: ${result.invoiceId}`,

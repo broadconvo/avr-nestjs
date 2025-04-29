@@ -22,4 +22,7 @@ export class CallMetadataDto {
 
   @Optional()
   invoiceId?: string;
+
+  @Optional()
+  messages?: string[];
 }

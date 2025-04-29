@@ -35,6 +35,7 @@ export interface GraphState {
   conversationState: ConversationState;
   selectedProducts: SelectedProduct[];
   invoiceId?: string;
+  history?: string;
 }
 
 // Parser Schemas

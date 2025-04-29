@@ -29,6 +29,7 @@ export class CallsController {
           metadata.callerName = contactInfo.contactFirstname;
           metadata.callerPhone = contactInfo.contactPhone;
           metadata.callerId = contactInfo.contactId;
+          metadata.messages = [];
 
           this.logger.log(
             `Contact found: ${contactInfo.contactName} for caller: ${metadata.callerId}`,
