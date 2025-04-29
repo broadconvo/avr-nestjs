@@ -3,6 +3,7 @@ export class ContactLookupDto {
 }
 
 export class ContactResponseDto {
+  contactId: string;
   contactFirstname: string;
   contactName: string;
   contactPhone: string;

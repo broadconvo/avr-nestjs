@@ -84,6 +84,7 @@ export class ContactLookupService {
       }
 
       const attributes = data[0].attributes || {};
+      const id = data[0].id || '';
       const fullName = attributes.full_name || '';
       const firstname = attributes.first_name || '';
       const phoneMobile = attributes.phone_mobile || '';
@@ -98,6 +99,7 @@ export class ContactLookupService {
             : '';
 
       return {
+        contactId: id,
         contactFirstname: firstname,
         contactName: fullName,
         contactPhone,
@@ -113,6 +115,7 @@ export class ContactLookupService {
   }
   private getEmptyResponse(apiDuration: string = '0'): ContactResponseDto {
     return {
+      contactId: '',
       contactFirstname: '',
       contactName: '',
       contactPhone: '',

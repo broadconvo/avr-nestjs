@@ -19,22 +19,24 @@ export class CallsController {
   }> {
     // Look up contact information if we have a phone number
     if (metadata.callerId) {
+      const callerPhone = metadata.callerId;
       try {
-        const contactInfo = await this.contactLookupService.lookupContact(
-          metadata.callerId,
-        );
+        const contactInfo =
+          await this.contactLookupService.lookupContact(callerPhone);
 
         if (contactInfo.contactPhone) {
           // Add contact information to the metadata
           metadata.callerName = contactInfo.contactFirstname;
+          metadata.callerPhone = contactInfo.contactPhone;
+          metadata.callerId = contactInfo.contactId;
 
           this.logger.log(
             `Contact found: ${contactInfo.contactName} for caller: ${metadata.callerId}`,
           );
-        } else this.logger.log(`New caller: ${metadata.callerId}`);
+        } else this.logger.log(`New caller: ${callerPhone}`);
       } catch (error) {
         this.logger.warn(
-          `Failed to lookup contact for ${metadata.callerId}: ${error.message}`,
+          `Failed to lookup contact for ${callerPhone}: ${error.message}`,
         );
       }
     }

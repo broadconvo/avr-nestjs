@@ -11,6 +11,10 @@ export class CallMetadataDto {
 
   @IsString()
   @Optional()
+  callerPhone?: string;
+
+  @IsString()
+  @Optional()
   callerName?: string;
 
   @IsString()

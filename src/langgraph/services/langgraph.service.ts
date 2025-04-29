@@ -11,6 +11,7 @@ import {
 import { z } from 'zod';
 import { ProductService } from './product.service';
 import { InvoiceService } from './invoice.service';
+import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
@@ -228,7 +229,7 @@ export class LangGraphService implements OnModuleInit {
       messages: string[];
       conversationState: string;
       identifiedProducts: any[];
-      context: any;
+      context: CallMetadataDto;
     }) => {
       // Only create invoice if we have identified products with high confidence
       const highConfidenceProducts = state.identifiedProducts.filter(
@@ -241,9 +242,8 @@ export class LangGraphService implements OnModuleInit {
 
       // Get customer info from context
       const customerId = state.context.callerId || 'unknown';
-      const customerName = state.context.contactName || 'Unknown Customer';
-      const customerPhone =
-        state.context.contactPhone || state.context.from || '';
+      const customerName = state.context.callerName || 'Unknown Customer';
+      const customerPhone = state.context.callerPhone || '';
 
       // Create order items
       const orderItems = highConfidenceProducts.map((p) => {
@@ -282,22 +282,21 @@ export class LangGraphService implements OnModuleInit {
 
     const generateResponseNode = async (state: {
       messages: string[];
-      invoiceId?: string;
       identifiedProducts: Array<{
         productId: string;
         quantity: number;
         confidence: number;
       }>;
       conversationState: string;
-      context: Record<string, any>;
+      context: CallMetadataDto;
     }) => {
       const history = state.messages.slice(0, -1).join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
       // Get invoice information if available
       let invoiceInfo = 'No invoice created yet.';
-      if (state.invoiceId) {
-        const invoice = this.invoiceService.getInvoice(state.invoiceId);
+      if (state.context.invoiceId) {
+        const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
         if (invoice) {
           invoiceInfo = `
             Invoice ID: ${invoice.id}
