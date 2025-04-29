@@ -25,17 +25,21 @@ export class LangGraphService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    const openAiModel = this.configService.get<string>(
+      'OPENAI_MODEL_NAME',
+      'gpt-4',
+    );
     // Initialize the LLM
     this.model = new ChatOpenAI({
       openAIApiKey: this.configService.get<string>('OPENAI_API_KEY'),
-      modelName: this.configService.get<string>('OPENAI_MODEL_NAME', 'gpt-4'),
+      model: openAiModel,
       temperature: 0.2, // Lower temperature for more deterministic outputs
     });
 
     // Create the graph
     this.initializeGraph();
 
-    this.logger.log('LangGraph service initialized');
+    this.logger.log(`LangGraph service initialized using ${openAiModel}`);
   }
 
   private initializeGraph() {
