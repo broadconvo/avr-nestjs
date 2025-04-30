@@ -1,50 +1,35 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Product } from '../interfaces/product';
+import axios from 'axios';
 
 @Injectable()
 export class ProductService {
   private readonly logger = new Logger(ProductService.name);
   private products: Product[] = [];
+  private readonly crmTokenUrl: string | undefined;
+  private readonly crmProductUrl: string | undefined;
+  private readonly crmClientId: string | undefined;
+  private readonly crmClientSecret: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
+    this.crmTokenUrl = this.configService.get<string>('CRM_TOKEN_URL');
+    this.crmProductUrl = this.configService.get<string>('CRM_PRODUCT_URL');
+    this.crmClientId = this.configService.get<string>('CRM_CLIENT_ID');
+    this.crmClientSecret = this.configService.get<string>('CRM_CLIENT_SECRET');
+
     // Initialize with some sample products
-    this.initializeProducts();
+    this.initializeProducts().then(() => {
+      this.logger.log('Products initialized');
+    });
   }
 
-  private initializeProducts() {
-    // Sample products - in a real application, these would come from a database
-    this.products = [
-      {
-        id: 'p001',
-        name: 'Infant Formula Milk Powder',
-        description: 'Premium infant formula for babies 0-6 months',
-        price: 299.99,
-        category: 'Baby',
-        sku: 'MILK-INF-001',
-      },
-      {
-        id: 'p002',
-        name: 'Follow-on Formula Milk Powder',
-        description: 'Nutritious formula for babies 6-12 months',
-        price: 329.99,
-        category: 'Baby',
-        sku: 'MILK-FOL-002',
-      },
-      {
-        id: 'p003',
-        name: 'Toddler Milk Powder',
-        description: 'Complete nutrition for toddlers 1-3 years',
-        price: 349.99,
-        category: 'Baby',
-        sku: 'MILK-TOD-003',
-      },
-      // Add more products as needed
-    ];
+  private async initializeProducts() {
+    this.products = await this.getProductsFromCrm();
   }
 
-  getAllProducts(): Product[] {
-    return this.products;
+  async getAllProducts(): Promise<Product[]> {
+    return await this.getProductsFromCrm();
   }
 
   getProductById(id: string): Product | undefined {
@@ -61,5 +46,69 @@ export class ProductService {
         (product.category &&
           product.category.toLowerCase().includes(normalizedQuery)),
     );
+  }
+
+  private async getProductsFromCrm(): Promise<Product[]> {
+    // Check if required configuration is available
+    if (
+      !this.crmTokenUrl ||
+      !this.crmProductUrl ||
+      !this.crmClientSecret ||
+      !this.crmClientId
+    ) {
+      this.logger.error('Missing required configuration for contact lookup');
+      return [];
+    }
+
+    try {
+      // Step 1: Get Bearer Token
+      const tokenResponse = await axios.post(
+        this.crmTokenUrl,
+        {
+          grant_type: 'client_credentials',
+          client_id: this.crmClientId,
+          client_secret: this.crmClientSecret,
+        },
+        {
+          httpsAgent: new (await import('https')).Agent({
+            rejectUnauthorized: false,
+          }),
+        },
+      );
+
+      const token = tokenResponse.data.access_token;
+      if (!token) {
+        this.logger.error('Failed to retrieve token');
+      }
+
+      // Step 2: Get Products
+      const contactResponse = await axios.get(this.crmProductUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        httpsAgent: new (await import('https')).Agent({
+          rejectUnauthorized: false,
+        }),
+      });
+
+      const products = contactResponse.data.data.map((product: any) => ({
+        id: product.id,
+        name: product.attributes.name,
+        description: product.attributes.description,
+        price: product.attributes.price,
+        category: product.attributes.aos_product_category_name,
+        sku: product.attributes.part_number,
+      }));
+
+      this.logger.log(`Products retrieved from CRM`);
+
+      return products;
+    } catch (error) {
+      this.logger.error(
+        `Error in getting products from CRM: ${error.message}`,
+        error.stack,
+      );
+      return [];
+    }
   }
 }
