@@ -39,12 +39,14 @@ export class LangGraphService implements OnModuleInit {
     });
 
     // Create the graph
-    this.initializeGraph();
+    this.initializeGraph().then(() => {
+      this.logger.log('Graph initialized successfully');
+    });
 
     this.logger.log(`LangGraph service initialized using ${openAiModel}`);
   }
 
-  private initializeGraph() {
+  private async initializeGraph() {
     /**
      * ----------------------------------------------------------------
      * Prompts - Used by the graph to determine the current state of conversation
@@ -78,7 +80,7 @@ export class LangGraphService implements OnModuleInit {
     );
 
     // Get all products for reference
-    const allProducts = this.productService.getAllProducts();
+    const allProducts = await this.productService.getAllProducts();
     const productCatalog = allProducts
       .map(
         (p) =>
@@ -148,8 +150,8 @@ export class LangGraphService implements OnModuleInit {
                 Generate a response based on the provided conversation state and context.
                 Use a friendly and professional tone suitable for customer service.
                 Ensure the response aligns with the current state of the conversation and addresses the latest user message.
-                If selectedProducts are provided, acknowledge the products, list the selected product clearly, and include the total amount due (if available).
-                If no selectedProducts are provided, ask clarifying questions to understand the user's needs or provide general information about available milk products or services.
+                If selectedProducts are provided, acknowledge the products, suggest the selected product clearly, and confirm which product the user wants if there multiple product suggestion.
+                If there are no specific product that were provided, ask clarifying questions to understand the user's needs or provide general information about available products from catalog.
                    And provide the catalog of available products based from the productCatalog.
                 If invoiceInfo is provided, include the receipt number and total amount, and confirm the invoice details with the user.
                 If any required information (e.g., history, currentState, context, selectedProducts, invoiceInfo) is missing or unclear, politely request clarification from the user to proceed effectively.
@@ -172,7 +174,6 @@ export class LangGraphService implements OnModuleInit {
                 - Proceed to create an invoice if the user confirms the order create_invoice if there is no invoice and update_invoice if there is an invoice.
                 - If an invoice exists, provide a professional summary (e.g., "Your order has been processed. Invoice #RMS12345 has a total of $10.50. Please confirm if you need further assistance.").
                 - If the conversation state is unclear (e.g., user asks about "milk" without specifics), ask targeted questions (e.g., "Could you clarify which type of milk you’re interested in, such as whole, skim, or organic?").
-                - End the response with a call to action, encouraging the user to provide more details or confirm their request (e.g., "How can I assist you further?").
                 Text-to-Speech Optimization:
                 - Write responses in clear, simple, and conversational English to ensure natural TTS output.
                 - Avoid special characters (e.g., #, *, &, %, @) in words or numbers to prevent mispronunciation.
@@ -217,7 +218,9 @@ export class LangGraphService implements OnModuleInit {
         format_instructions: analyzeOutputParser.getFormatInstructions(),
       });
 
-      console.log('analyzeMessageNode', analysisResult);
+      console.log('analyzeMessageNode', {
+        reasoning: analysisResult.reasoning,
+      });
       // Map identified product names to actual product IDs
       const selectedProducts = (analysisResult.products || [])
         .map((p) => {
@@ -513,7 +516,6 @@ export class LangGraphService implements OnModuleInit {
   // Add this method to the LangGraphService class
   async processMessage(message: string, context: CallMetadataDto) {
     try {
-      console.log('processMessage - messages', context.messages);
       // Initialize the state with the message and context
       const initialState: GraphState = {
         currentResponse: '',
@@ -526,13 +528,19 @@ export class LangGraphService implements OnModuleInit {
       // Execute the graph with the initial state
       const result = await this.graph.invoke(initialState);
 
-      console.log('processMessage', result);
+      const collectedResponses = [
+        ...result.messages,
+        `Agent: ${result.currentResponse}`,
+      ];
+      console.log('processMessage', {
+        messages: collectedResponses,
+      });
       return {
         response: result.currentResponse,
         state: result.conversationState,
         selectedProducts: result.selectedProducts,
         invoiceId: result.invoiceId,
-        messages: [...result.messages, `Agent: ${result.currentResponse}`], // collect messages
+        messages: collectedResponses,
       };
     } catch (error) {
       this.logger.error(
