@@ -167,8 +167,8 @@ export class LangGraphService implements OnModuleInit {
                 
                 ** Response Guidelines: **
                 - Acknowledge the user's latest message and reference relevant details from the conversation history or context.
-                - For product-related inquiries, highlight available milk products (e.g., whole milk, skim milk, organic milk) if no specific products are identified.
-                - If products are selected, confirm the selection and provide a clear breakdown of the total amount (e.g., "You’ve selected 2 units of Whole Milk at $3.50 each and 1 unit of Skim Milk at $3.00, for a total of $10.00").
+                - If no specific products were selected For product-related inquiries, highlight available milk products (e.g., products from catalog).
+                - If there are products selected, confirm the selection and provide a clear breakdown of the total amount (e.g., "You’ve selected 2 units of Whole Milk at $3.50 each and 1 unit of Skim Milk at $3.00, for a total of $10.00").
                 - Proceed to create an invoice if the user confirms the order create_invoice if there is no invoice and update_invoice if there is an invoice.
                 - If an invoice exists, provide a professional summary (e.g., "Your order has been processed. Invoice #RMS12345 has a total of $10.50. Please confirm if you need further assistance.").
                 - If the conversation state is unclear (e.g., user asks about "milk" without specifics), ask targeted questions (e.g., "Could you clarify which type of milk you’re interested in, such as whole, skim, or organic?").
