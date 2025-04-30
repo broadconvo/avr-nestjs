@@ -308,6 +308,12 @@ export class AudioSocketService implements OnModuleInit {
       this.logger.log(
         `[${callSession.metadata.sessionId}] Stopped previous playback`,
       );
+    } else if (callSession.isPlaying) {
+      // If isPlaying is true but timeoutId is null (edge case?), still ensure isPlaying is false
+      callSession.isPlaying = false;
+      this.logger.log(
+        `[${callSession.metadata.sessionId}] Interrupted previous playback (no active timeout).`,
+      );
     }
   }
 
@@ -362,8 +368,9 @@ export class AudioSocketService implements OnModuleInit {
         transcription,
         callSession.metadata,
       );
+      this.interruptPlayback(callSession); // Stop any ongoing playback
 
-      console.log('sendToLangGraph Audiosocket', result);
+      console.log('sendToLangGraph', result);
       // If an invoice was created, store it in the call session
       callSession.metadata.messages = result.messages;
       if (result.invoiceId) {
@@ -383,6 +390,8 @@ export class AudioSocketService implements OnModuleInit {
   }
 
   private async synthesizeAndPlay(callSession: CallSession, text: string) {
+    this.interruptPlayback(callSession);
+
     const callSessionId = callSession.metadata.sessionId;
     this.logger.log(`[${callSessionId}] Synthesizing speech: ${text}`);
 
