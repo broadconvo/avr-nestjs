@@ -14,17 +14,24 @@ import { InvoiceService } from './invoice.service';
 import { GraphState } from '../types/graph.types';
 import { OrderItem } from '../interfaces/order-item';
 import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
+import axios from 'axios';
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
   private readonly logger = new Logger(LangGraphService.name);
   private model: ChatOpenAI;
-  private graph: any; // CompiledStateGraph
+  private graph: any;
+  private readonly rachelUrl: string | undefined;
+  private readonly rachelLanguage: string | undefined;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly productService: ProductService,
     private readonly invoiceService: InvoiceService,
-  ) {}
+  ) {
+    this.rachelUrl = this.configService.get<string>('RACHEL_URL');
+    this.rachelLanguage = this.configService.get<string>('RACHEL_LANGUAGE');
+  }
 
   onModuleInit() {
     const openAiModel = this.configService.get<string>(
@@ -59,6 +66,7 @@ export class LangGraphService implements OnModuleInit {
       z.object({
         nextState: z.enum([
           'greeting',
+          'company_inquiry',
           'understanding_problem',
           'product_identification',
           'invoice_creation',
@@ -108,6 +116,7 @@ export class LangGraphService implements OnModuleInit {
         **Task:**
         1. **Determine the Next State:** Based on the latest user message and conversation context, select the most appropriate next state from the following:
            - greeting: Initial interaction or welcoming the user
+           - company_inquiry: User asks about the company or its services. This includes the knowledge base of the company.
            - understanding_problem: Clarifying or gathering details about the user's issue or query
            - product_identification: Identifying and confirming products mentioned by the user. Providing a list of all products in the catalog (e.g., when asked "What products do you have?")
            - invoice_creation: Generating or discussing an invoice based on mentioned confirmed products
@@ -245,6 +254,37 @@ export class LangGraphService implements OnModuleInit {
         conversationState: analysisResult.nextState,
         selectedProducts: selectedProducts, // Update state with products found here
         invoiceId: state.context.invoiceId,
+      };
+    };
+
+    const companyInquiryNode = async (state: GraphState) => {
+      this.logger.log('Inquiring about the company...');
+
+      this.logger.log(
+        `[${state.context.sessionId}] Sending to Rachel: ${state.query}`,
+      );
+
+      // Create a new thread
+      let response: string = '';
+      if (this.rachelUrl != null) {
+        await axios
+          .post(this.rachelUrl, {
+            message: state.query,
+            language: this.rachelLanguage,
+            uniqueId: state.context.sessionId, // from pbx - search CDR
+            // customer service agent or receptionist
+            rachelId: state.context.rachelId,
+            tenantId: state.context.rachelTenantId,
+          })
+          .then((res) => {
+            response = res.data.response;
+          })
+          .catch((err) => {
+            console.error(err.response.data.error);
+          });
+      }
+      return {
+        currentResponse: response,
       };
     };
 
@@ -445,6 +485,10 @@ export class LangGraphService implements OnModuleInit {
      */
     // 4. Create the state graph
     const stateGraphChannels = {
+      query: {
+        value: [],
+        reducer: (curr: any, newVal: any) => [...curr, newVal],
+      },
       messages: {
         value: [],
         reducer: (curr: any, newVal: any) => [...curr, newVal],
@@ -477,6 +521,7 @@ export class LangGraphService implements OnModuleInit {
       channels: stateGraphChannels,
     });
     langgraphBuilder.addNode('analyze_message', analyzeMessageNode);
+    langgraphBuilder.addNode('inquire_company', companyInquiryNode);
     langgraphBuilder.addNode('create_invoice', createInvoiceNode);
     langgraphBuilder.addNode('update_invoice', updateInvoiceNode);
     langgraphBuilder.addNode('generate_response', generateResponseNode);
@@ -510,6 +555,8 @@ export class LangGraphService implements OnModuleInit {
         switch (state.conversationState) {
           // case 'product_identification': // This state might mean "ask clarifying questions" now
           //   return 'generate_response';
+          case 'company_inquiry':
+            return 'inquire_company';
           case 'invoice_creation': // If no products, maybe ask again?
             return 'generate_response'; // Or a specific "clarify products" node
           default:
@@ -533,6 +580,7 @@ export class LangGraphService implements OnModuleInit {
     try {
       // Initialize the state with the message and context
       const initialState: GraphState = {
+        query: message,
         currentResponse: '',
         messages: [...context.messages!, `User: ${message}`],
         conversationState: 'greeting',

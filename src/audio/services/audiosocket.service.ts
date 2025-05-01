@@ -28,6 +28,7 @@ export class AudioSocketService implements OnModuleInit {
   private readonly audioGreetings: string;
   private readonly audioError: string;
 
+  private readonly laravelUrl: string | undefined;
   private readonly rachelLanguage: string;
   private readonly rachelUrl: string;
   private rachelTenantId: string;
@@ -39,6 +40,7 @@ export class AudioSocketService implements OnModuleInit {
     private readonly langGraphService: LangGraphService,
     private readonly invoiceService: InvoiceService,
   ) {
+    this.laravelUrl = this.configService.get<string>('LARAVEL_URL');
     this.rachelUrl = this.configService.get<string>(
       'RACHEL_URL',
       'http://127.0.0.1:3001/voice/v2/query',
@@ -132,10 +134,12 @@ export class AudioSocketService implements OnModuleInit {
 
         axios
           .get(
-            `http://127.0.0.0:3002/api/broadconvo/phones/${callSession.metadata.DID}`,
+            `${this.laravelUrl}/api/broadconvo/phones/${callSession.metadata.DID}`,
           )
           .then((res) => {
-            this.rachelId = res.data.data.rachel_id;
+            callSession.metadata.rachelId = res.data.data.rachel_id;
+            callSession.metadata.rachelTenantId = res.data.data.tenant_id;
+            this.rachelId = 'res.data.data.rachel_id';
             this.rachelTenantId = res.data.data.tenant_id;
           })
           .catch((err) => {

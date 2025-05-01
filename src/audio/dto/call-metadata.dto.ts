@@ -29,4 +29,10 @@ export class CallMetadataDto {
 
   @Optional()
   messages?: string[];
+
+  @Optional()
+  rachelId?: string[];
+
+  @Optional()
+  rachelTenantId?: string[];
 }

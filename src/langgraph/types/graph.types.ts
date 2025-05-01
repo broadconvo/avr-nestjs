@@ -4,6 +4,7 @@ import { CallMetadataDto } from '../../audio/dto/call-metadata.dto';
 // Conversation States
 export type ConversationState =
   | 'greeting'
+  | 'company_inquiry'
   | 'understanding_problem'
   | 'product_identification'
   | 'invoice_creation'
@@ -29,6 +30,7 @@ export interface SelectedProduct {
 
 // State Types
 export interface GraphState {
+  query?: string;
   messages: string[];
   context: CallMetadataDto;
   currentResponse: string;
@@ -42,6 +44,7 @@ export interface GraphState {
 export const stateOutputSchema = z.object({
   nextState: z.enum([
     'greeting',
+    'company_inquiry',
     'understanding_problem',
     'product_identification',
     'invoice_creation',

@@ -4,6 +4,7 @@ interface ConversationState {
   currentResponse: string;
   conversationState:
     | 'greeting'
+    | 'company_inquiry'
     | 'understanding_problem'
     | 'product_identification'
     | 'invoice_creation'
