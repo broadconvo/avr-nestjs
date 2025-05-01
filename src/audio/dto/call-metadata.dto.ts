@@ -1,5 +1,6 @@
 import { IsString } from '@nestjs/class-validator';
 import { Optional } from '@nestjs/common';
+import { Invoice } from '../../langgraph/interfaces/invoice';
 
 export class CallMetadataDto {
   @IsString()
@@ -22,6 +23,9 @@ export class CallMetadataDto {
 
   @Optional()
   invoiceId?: string;
+
+  @Optional()
+  invoices?: Map<string, Invoice>;
 
   @Optional()
   messages?: string[];

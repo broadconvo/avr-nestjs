@@ -271,7 +271,7 @@ export class LangGraphService implements OnModuleInit {
       });
 
       // Create the invoice
-      const invoice = await this.invoiceService.createInvoice(
+      const createInvoiceResult = await this.invoiceService.createInvoice(
         customerId,
         customerName,
         customerPhone,
@@ -279,7 +279,7 @@ export class LangGraphService implements OnModuleInit {
         `Created from conversation on ${new Date().toISOString()}`,
       );
 
-      if (!invoice) {
+      if (!createInvoiceResult) {
         this.logger.error('No invoice was created.');
         return {
           currentResponse: 'Sorry, I could not create the invoice.',
@@ -287,10 +287,11 @@ export class LangGraphService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Created invoice ${invoice.id} with receipt number ${invoice.receiptNumber}`,
+        `Created invoice ${createInvoiceResult.invoice.id} with receipt number ${createInvoiceResult.invoice.receiptNumber}`,
       );
 
-      state.context.invoiceId = invoice.id; // Store the invoice ID in context
+      state.context.invoices = createInvoiceResult.invoices; // Store the invoices in context
+      state.context.invoiceId = createInvoiceResult.invoice.id; // Store the invoice ID in context
       return { context: state.context }; // Return the invoice ID
     };
 
@@ -345,14 +346,17 @@ export class LangGraphService implements OnModuleInit {
         .filter((item): item is OrderItem => item !== null);
 
       // 4. Call the updateInvoice service method
-      const updatedInvoice = this.invoiceService.updateInvoice(invoiceId, {
-        items: updatedOrderItems, // Update the items list
-        // You could potentially update other fields like 'notes' if captured in the state
-        // notes: state.context?.updateNotes || invoice.notes // Example
-      });
+      const updatedInvoiceResult = this.invoiceService.updateInvoice(
+        invoiceId,
+        {
+          items: updatedOrderItems, // Update the items list
+          // You could potentially update other fields like 'notes' if captured in the state
+          // notes: state.context?.updateNotes || invoice.notes // Example
+        },
+      );
 
       // 5. Handle the result
-      if (!updatedInvoice) {
+      if (!updatedInvoiceResult) {
         this.logger.error(
           `Failed to update invoice with ID: ${invoiceId}. Invoice not found or update failed.`,
         );
@@ -363,8 +367,9 @@ export class LangGraphService implements OnModuleInit {
         };
       }
 
+      state.context.invoices = updatedInvoiceResult.invoices; // Update the context with the new invoice
       this.logger.log(
-        `Successfully updated invoice ${updatedInvoice.id}. New total: ${updatedInvoice.total}`,
+        `Successfully updated invoice ${updatedInvoiceResult.invoice.id}. New total: ${updatedInvoiceResult.invoice.total}`,
       );
 
       // 6. Return the invoice ID (it shouldn't change, but returning confirms it)

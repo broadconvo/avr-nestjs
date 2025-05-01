@@ -164,14 +164,15 @@ export class AudioSocketService implements OnModuleInit {
       outboundStream.onClose(async () => {
         if (callSession) {
           // Check if there's an invoice to process
-          if (callSession.metadata.invoiceId) {
+          if (callSession.metadata.invoiceId && callSession.metadata.invoices) {
             // Get the invoice from the service
-            const invoice = this.invoiceService.getInvoice(
+            const invoice = callSession.metadata.invoices.get(
               callSession.metadata.invoiceId,
             );
             console.log(
               'outboundStream onClose - metadata',
               callSession.metadata.invoiceId,
+              callSession.metadata.invoices,
             );
             console.log('outboundStream onClose', invoice);
 
