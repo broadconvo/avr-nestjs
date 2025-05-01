@@ -10,14 +10,14 @@ export class InvoiceService {
   private readonly logger = new Logger(InvoiceService.name);
   private invoices: Map<string, Invoice> = new Map();
   private readonly crmTokenUrl: string | undefined;
-  private readonly crmInvoiceUrl: string | undefined;
+  private readonly crmModuleUrl: string | undefined;
   private readonly crmInvoiceWorkflow: string | undefined;
   private readonly crmClientId: string | undefined;
   private readonly crmClientSecret: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
     this.crmTokenUrl = this.configService.get<string>('CRM_TOKEN_URL');
-    this.crmInvoiceUrl = this.configService.get<string>('CRM_INVOICE_URL');
+    this.crmModuleUrl = this.configService.get<string>('CRM_MODULE_URL');
     this.crmClientId = this.configService.get<string>('CRM_CLIENT_ID');
     this.crmClientSecret = this.configService.get<string>('CRM_CLIENT_SECRET');
     this.crmInvoiceWorkflow = this.configService.get<string>(
@@ -35,7 +35,7 @@ export class InvoiceService {
     // Check if required configuration is available
     if (
       !this.crmTokenUrl ||
-      !this.crmInvoiceUrl ||
+      !this.crmModuleUrl ||
       !this.crmInvoiceWorkflow ||
       !this.crmClientSecret ||
       !this.crmClientId
@@ -114,7 +114,7 @@ export class InvoiceService {
         `Creating invoice in CRM with data: ${JSON.stringify(invoiceData)}`,
       );
       const invoiceResponse = await axios.post(
-        this.crmInvoiceUrl,
+        this.crmModuleUrl,
         invoiceData,
         headers,
       );
