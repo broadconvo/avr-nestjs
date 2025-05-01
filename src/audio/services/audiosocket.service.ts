@@ -192,6 +192,7 @@ export class AudioSocketService implements OnModuleInit {
               }, 0);
             }
           } // end if invoiceId
+          else this.logger.log(`[${sessionId}] No invoiceId found in metadata`);
           await this.synthesizeAndPlay(callSession, 'Goodbye!');
           // Remove the call from our map when it is closed
           this.callSessionService.deleteSession(sessionId);
