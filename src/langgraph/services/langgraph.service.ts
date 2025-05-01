@@ -244,7 +244,7 @@ export class LangGraphService implements OnModuleInit {
       return {
         conversationState: analysisResult.nextState,
         selectedProducts: selectedProducts, // Update state with products found here
-        invoiceId: state.invoiceId,
+        invoiceId: state.context.invoiceId,
       };
     };
 
@@ -290,7 +290,8 @@ export class LangGraphService implements OnModuleInit {
         `Created invoice ${invoice.id} with receipt number ${invoice.receiptNumber}`,
       );
 
-      return { invoiceId: invoice.id };
+      state.context.invoiceId = invoice.id; // Store the invoice ID in context
+      return { context: state.context }; // Return the invoice ID
     };
 
     const updateInvoiceNode = (state: GraphState) => {
@@ -299,7 +300,7 @@ export class LangGraphService implements OnModuleInit {
       // 1. Get the invoice ID from the state
       // Assumes the invoiceId is stored directly in the state channel.
       // If it's stored in context, use state.context.invoiceId
-      const invoiceId = state.invoiceId;
+      const invoiceId = state.context.invoiceId;
 
       if (!invoiceId) {
         this.logger.error(
@@ -369,7 +370,7 @@ export class LangGraphService implements OnModuleInit {
       // 6. Return the invoice ID (it shouldn't change, but returning confirms it)
       // The reducer for invoiceId just replaces the value, so this keeps it consistent.
       // We don't need to return currentResponse here as generate_response node handles that.
-      return { invoiceId: updatedInvoice.id };
+      return { context: state.context };
     };
 
     const generateResponseNode = async (state: GraphState) => {
@@ -379,8 +380,8 @@ export class LangGraphService implements OnModuleInit {
 
       // Get invoice information if available
       let invoiceInfo = 'No invoice created yet.';
-      if (state.invoiceId) {
-        const invoice = this.invoiceService.getInvoice(state.invoiceId);
+      if (state.context.invoiceId) {
+        const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
         // <YYYY-MM-DD>
         if (invoice) {
           invoiceInfo = `
@@ -407,7 +408,7 @@ export class LangGraphService implements OnModuleInit {
               .join('\n')
           : 'No products selected yet.';
 
-      console.log('generateResponseNode', {
+      console.log('generateResponseNode node invoke data - ', {
         history,
         message: lastMessage,
         currentState: state.conversationState,
@@ -426,7 +427,7 @@ export class LangGraphService implements OnModuleInit {
         invoiceInfo,
       });
 
-      return { currentResponse: response, invoiceId: state.invoiceId };
+      return { currentResponse: response, context: state.context };
     };
 
     /**
