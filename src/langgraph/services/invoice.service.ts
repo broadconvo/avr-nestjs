@@ -101,7 +101,7 @@ export class InvoiceService {
             status: 'Unpaid',
             rms_order_placed_by_telno_c: customerPhone,
             rms_order_placed_by_c: customerName,
-            date_entered: new Date().toISOString(),
+            date_entered: '2025-05-01',
             total_amt: total.toFixed(2),
             custom_invoice_prefix_c: 'N',
             bugs_aos_invoices_1bugs_ida: this.crmInvoiceWorkflow,
