@@ -109,6 +109,10 @@ export class InvoiceService {
           },
         },
       };
+
+      this.logger.log(
+        `Creating invoice in CRM with data: ${JSON.stringify(data)}`,
+      );
       const invoiceResponse = await axios.post(
         this.crmInvoiceUrl,
         data,
