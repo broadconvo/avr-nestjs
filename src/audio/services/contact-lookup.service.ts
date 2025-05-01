@@ -108,6 +108,7 @@ export class ContactLookupService {
       return this.getEmptyResponse();
     }
   }
+
   private getEmptyResponse(apiDuration: string = '0'): ContactResponseDto {
     return {
       contactId: '',

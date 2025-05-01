@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { CallSessionService } from './call-session.service';
 import { CallSession } from '../entities/call-session.entity';
 import { LangGraphService } from '../../langgraph/services/langgraph.service';
+import { InvoiceService } from '../../langgraph/services/invoice.service';
 
 @Injectable()
 export class AudioSocketService implements OnModuleInit {
@@ -36,6 +37,7 @@ export class AudioSocketService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly callSessionService: CallSessionService,
     private readonly langGraphService: LangGraphService,
+    private readonly invoiceService: InvoiceService,
   ) {
     this.rachelUrl = this.configService.get<string>(
       'RACHEL_URL',
@@ -161,6 +163,35 @@ export class AudioSocketService implements OnModuleInit {
 
       outboundStream.onClose(async () => {
         if (callSession) {
+          // Check if there's an invoice to process
+          if (callSession.metadata.invoiceId) {
+            // Get the invoice from the service
+            const invoice = this.invoiceService.getInvoice(
+              callSession.metadata.invoiceId,
+            );
+
+            if (invoice) {
+              this.logger.log(
+                `[${sessionId}] Scheduling products to be added to invoice ${invoice.id}`,
+              );
+
+              // Start the process in the background without awaiting it
+              setTimeout(() => {
+                this.invoiceService
+                  .addProductsToInvoice(invoice.id, invoice)
+                  .then(() => {
+                    this.logger.log(
+                      `[${sessionId}] Successfully added products to invoice ${invoice.id}`,
+                    );
+                  })
+                  .catch((err) => {
+                    this.logger.error(
+                      `[${sessionId}] Error adding products to invoice: ${err.message}`,
+                    );
+                  });
+              }, 0);
+            }
+          } // end if invoiceId
           await this.synthesizeAndPlay(callSession, 'Goodbye!');
           // Remove the call from our map when it is closed
           this.callSessionService.deleteSession(sessionId);

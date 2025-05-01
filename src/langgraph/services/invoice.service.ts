@@ -119,13 +119,14 @@ export class InvoiceService {
         headers,
       );
 
-      console.log(invoiceResponse.data);
-
-      const invoiceId = invoiceResponse.data.data.attributes.bg_invoice_num_c;
+      const invoiceReceipt =
+        invoiceResponse.data.data.attributes.bg_invoice_num_c;
+      const invoiceId = invoiceResponse.data.data.id;
       this.logger.log(`Invoice ID created in CRM`);
 
       const invoice: Invoice = {
         id: invoiceId,
+        receiptNumber: invoiceReceipt,
         customerId,
         customerName,
         customerPhone,
@@ -190,5 +191,97 @@ export class InvoiceService {
     this.invoices.set(invoiceId, invoice);
 
     return receiptNumber;
+  }
+
+  async addProductsToInvoice(id: string, invoice: Partial<Invoice>) {
+    // Check if required configuration is available
+    if (
+      !this.crmTokenUrl ||
+      !this.crmModuleUrl ||
+      !this.crmInvoiceWorkflow ||
+      !this.crmClientSecret ||
+      !this.crmClientId
+    ) {
+      this.logger.error('Missing required configuration for contact lookup');
+      return;
+    }
+
+    try {
+      // Step 1: Get Bearer Token
+      const tokenResponse = await axios.post(
+        this.crmTokenUrl,
+        {
+          grant_type: 'client_credentials',
+          client_id: this.crmClientId,
+          client_secret: this.crmClientSecret,
+        },
+        {
+          httpsAgent: new (await import('https')).Agent({
+            rejectUnauthorized: false,
+          }),
+        },
+      );
+
+      const token = tokenResponse.data.access_token;
+      if (!token) {
+        this.logger.error('Failed to retrieve token');
+      }
+
+      this.logger.log('Token retrieved successfully');
+
+      // Step 2: Create invoice in CRM
+      const headers = {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        httpsAgent: new (await import('https')).Agent({
+          rejectUnauthorized: false,
+        }),
+      };
+
+      const promises: any[] = [];
+      let productCount: number = 0;
+      invoice.items?.forEach((item) => {
+        const productData = {
+          data: {
+            type: 'AOS_Products_Quotes',
+            attributes: {
+              parent_id: invoice.id,
+              product_id: item.product.id,
+              name: item.product.name,
+              item_description: item.product.description,
+              part_number: item.product.sku,
+              product_qty: item.quantity.toString(),
+              product_unit_price: item.unitPrice.toString(),
+              product_total_price: (item.unitPrice * item.quantity).toString(),
+              product_list_price: item.product.price.toString(),
+              number: (++productCount).toString(),
+              // default
+              parent_type: 'AOS_Invoices',
+              product_cost_price: '0.00',
+              vat_amt: '0.00',
+              vat: '',
+              currency_id: '-9',
+            },
+          },
+        };
+
+        this.logger.log(`Adding Products to Invoice: ${invoice.receiptNumber}`);
+        if (this.crmModuleUrl != null) {
+          promises.push(axios.post(this.crmModuleUrl, productData, headers));
+        }
+      });
+
+      await Promise.all(promises);
+
+      this.logger.log(
+        `Added ${invoice.items?.length} products to invoice ${invoice.receiptNumber}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in adding products to an invoice in CRM: ${error.message}`,
+        error.stack,
+      );
+    } // end create crm invoice
   }
 }
