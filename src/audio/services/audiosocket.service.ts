@@ -169,6 +169,10 @@ export class AudioSocketService implements OnModuleInit {
             const invoice = this.invoiceService.getInvoice(
               callSession.metadata.invoiceId,
             );
+            console.log(
+              'outboundStream onClose - metadata',
+              callSession.metadata.invoiceId,
+            );
             console.log('outboundStream onClose', invoice);
 
             if (invoice) {
@@ -191,7 +195,7 @@ export class AudioSocketService implements OnModuleInit {
                     );
                   });
               }, 0);
-            }
+            } else this.logger.log(`[${sessionId}] No invoice found in memory`);
           } // end if invoiceId
           else this.logger.log(`[${sessionId}] No invoiceId found in metadata`);
           await this.synthesizeAndPlay(callSession, 'Goodbye!');

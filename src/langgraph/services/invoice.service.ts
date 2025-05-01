@@ -158,6 +158,7 @@ export class InvoiceService {
   }
 
   getInvoice(id: string): Invoice | undefined {
+    console.log(this.invoices);
     return this.invoices.get(id);
   }
 
