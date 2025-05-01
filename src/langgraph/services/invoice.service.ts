@@ -173,18 +173,7 @@ export class InvoiceService {
       throw new Error(`Invoice ${invoiceId} not found`);
     }
 
-    // Generate a receipt number based on date and invoice ID
-    const date = new Date();
-    const timestamp = (
-      date.getFullYear() +
-      date.getMonth() +
-      date.getDate() +
-      date.getHours() +
-      date.getMinutes() +
-      date.getSeconds()
-    ).toString();
-
-    const receiptNumber = `RMS-${timestamp}`;
+    const receiptNumber = `RMS-${invoiceId}`;
 
     // Update the invoice with the receipt number
     invoice.receiptNumber = receiptNumber;
