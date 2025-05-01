@@ -113,36 +113,41 @@ export class InvoiceService {
       this.logger.log(
         `Creating invoice in CRM with data: ${JSON.stringify(invoiceData)}`,
       );
-      const invoiceResponse = await axios.post(
-        this.crmModuleUrl,
-        invoiceData,
-        headers,
-      );
+      let returnValue: Invoice | null = null;
+      axios
+        .post(this.crmModuleUrl, invoiceData, headers)
+        .then((response) => {
+          const invoiceReceipt = response.data.data.attributes.bg_invoice_num_c;
+          const invoiceId = response.data.data.id;
+          this.logger.log(`Invoice ID created in CRM`);
 
-      const invoiceReceipt =
-        invoiceResponse.data.data.attributes.bg_invoice_num_c;
-      const invoiceId = invoiceResponse.data.data.id;
-      this.logger.log(`Invoice ID created in CRM`);
+          const invoice: Invoice = {
+            id: invoiceId,
+            receiptNumber: invoiceReceipt,
+            customerId,
+            customerName,
+            customerPhone,
+            items: filteredItems,
+            total,
+            createdAt: new Date(),
+            status: 'draft',
+            notes,
+          };
 
-      const invoice: Invoice = {
-        id: invoiceId,
-        receiptNumber: invoiceReceipt,
-        customerId,
-        customerName,
-        customerPhone,
-        items: filteredItems,
-        total,
-        createdAt: new Date(),
-        status: 'draft',
-        notes,
-      };
-
-      this.invoices.set(invoice.id, invoice);
-      this.logger.log(
-        `Created invoice ${invoice.id} for customer ${customerName}`,
-      );
-
-      return invoice;
+          this.invoices.set(invoice.id, invoice);
+          this.logger.log(
+            `Created invoice ${invoice.id} for customer ${customerName}`,
+          );
+          returnValue = invoice;
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Error in axios creating invoice in CRM: ${error.message}`,
+            error.stack,
+          );
+          return null;
+        });
+      return returnValue;
     } catch (error) {
       this.logger.error(
         `Error in creating invoice in CRM: ${error.message}`,
