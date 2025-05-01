@@ -116,7 +116,8 @@ export class LangGraphService implements OnModuleInit {
         **Task:**
         1. **Determine the Next State:** Based on the latest user message and conversation context, select the most appropriate next state from the following:
            - greeting: Initial interaction or welcoming the user
-           - company_inquiry: User asks about the company or its services. This includes the knowledge base of the company.
+           - company_inquiry: If the question is not related to products in the catalog, it might be a question about the company so still transition to company_inquiry. 
+              User asks about the company or its services, this includes the knowledge base of the company.
            - understanding_problem: Clarifying or gathering details about the user's issue or query
            - product_identification: Identifying and confirming products mentioned by the user. Providing a list of all products in the catalog (e.g., when asked "What products do you have?")
            - invoice_creation: Generating or discussing an invoice based on mentioned confirmed products
