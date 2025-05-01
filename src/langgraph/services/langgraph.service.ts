@@ -426,7 +426,7 @@ export class LangGraphService implements OnModuleInit {
         invoiceInfo,
       });
 
-      return { currentResponse: response, invoiceId: state.context.invoiceId };
+      return { currentResponse: response, invoiceId: state.invoiceId };
     };
 
     /**
