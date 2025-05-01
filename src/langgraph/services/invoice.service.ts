@@ -111,7 +111,7 @@ export class InvoiceService {
         headers,
       );
 
-      const invoiceId = invoiceResponse.data.data.id;
+      const invoiceId = invoiceResponse.data.data.attributes.bg_invoice_num_c;
       this.logger.log(`Invoice ID created in CRM`);
 
       const invoice: Invoice = {

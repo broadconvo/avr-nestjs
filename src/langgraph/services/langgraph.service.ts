@@ -247,7 +247,7 @@ export class LangGraphService implements OnModuleInit {
       };
     };
 
-    const createInvoiceNode = (state: GraphState) => {
+    const createInvoiceNode = async (state: GraphState) => {
       this.logger.log('Creating invoice...');
 
       // Get customer info from context
@@ -270,13 +270,20 @@ export class LangGraphService implements OnModuleInit {
       });
 
       // Create the invoice
-      const invoice = this.invoiceService.createInvoice(
+      const invoice = await this.invoiceService.createInvoice(
         customerId,
         customerName,
         customerPhone,
         orderItems,
         `Created from conversation on ${new Date().toISOString()}`,
       );
+
+      if (!invoice) {
+        this.logger.error('Failed to create invoice.');
+        return {
+          currentResponse: 'Sorry, I could not create the invoice.',
+        };
+      }
 
       // Generate receipt number
       const receiptNumber = this.invoiceService.generateReceiptNumber(
