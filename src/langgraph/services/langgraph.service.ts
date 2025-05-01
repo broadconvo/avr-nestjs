@@ -373,14 +373,14 @@ export class LangGraphService implements OnModuleInit {
     };
 
     const generateResponseNode = async (state: GraphState) => {
-      this.logger.log('Generating response...');
+      this.logger.log('Generating response...', state);
       const history = state.messages.join('\n');
       const lastMessage = state.messages[state.messages.length - 1];
 
       // Get invoice information if available
       let invoiceInfo = 'No invoice created yet.';
-      if (state.context.invoiceId) {
-        const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
+      if (state.invoiceId) {
+        const invoice = this.invoiceService.getInvoice(state.invoiceId);
         // <YYYY-MM-DD>
         if (invoice) {
           invoiceInfo = `
