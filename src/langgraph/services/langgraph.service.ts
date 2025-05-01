@@ -142,8 +142,9 @@ export class LangGraphService implements OnModuleInit {
     const generateResponsePromptTemplate = ChatPromptTemplate.fromTemplate(
       `You are a professional customer service assistant for a company 
                 that sells milk and related products for RMS (Retail Milk Solutions). 
-                Your goal is to provide accurate, polite, and concise responses 
+                Your goal is to provide accurate, and concise responses 
                 tailored to the user's needs. Follow the instructions and guidelines carefully.
+                Make sure that the total prices that the user selected is correct.
 
                 Prompt Instructions:
                 
