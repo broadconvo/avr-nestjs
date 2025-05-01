@@ -65,7 +65,7 @@ export class InvoiceService {
         this.logger.error('Failed to retrieve token');
       }
 
-      this.logger.error('Token retrieved successfully');
+      this.logger.log('Token retrieved successfully');
 
       // Step 2: Create Invoice
       const filteredItems = items.filter(
@@ -80,7 +80,7 @@ export class InvoiceService {
         0,
       );
 
-      this.logger.error('Items were gathered and total calculated');
+      this.logger.log('Items were gathered and total calculated');
 
       // Step 2: Create invoice in CRM
       const headers = {
