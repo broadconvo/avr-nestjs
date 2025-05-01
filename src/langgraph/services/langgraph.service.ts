@@ -280,7 +280,7 @@ export class LangGraphService implements OnModuleInit {
       );
 
       if (!invoice) {
-        this.logger.error('Failed to create invoice.');
+        this.logger.error('No invoice was created.');
         return {
           currentResponse: 'Sorry, I could not create the invoice.',
         };

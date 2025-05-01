@@ -114,7 +114,7 @@ export class InvoiceService {
         `Creating invoice in CRM with data: ${JSON.stringify(invoiceData)}`,
       );
       let returnValue: Invoice | null = null;
-      axios
+      await axios
         .post(this.crmModuleUrl, invoiceData, headers)
         .then((response) => {
           const invoiceReceipt = response.data.data.attributes.bg_invoice_num_c;
