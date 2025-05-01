@@ -92,13 +92,13 @@ export class InvoiceService {
         }),
       };
       const sixCharUuidV4 = uuidv4().replace(/-/g, '').slice(0, 6);
-      const data = {
+      const invoiceData = {
         data: {
           type: 'AOS_Invoices',
           attributes: {
             name: `Invoice for ${customerName} - ${sixCharUuidV4}`,
             billing_contact_id: customerId,
-            status: 'draft',
+            status: 'Unpaid',
             rms_order_placed_by_telno_c: customerPhone,
             rms_order_placed_by_c: customerName,
             date_entered: new Date().toISOString(),
@@ -111,11 +111,11 @@ export class InvoiceService {
       };
 
       this.logger.log(
-        `Creating invoice in CRM with data: ${JSON.stringify(data)}`,
+        `Creating invoice in CRM with data: ${JSON.stringify(invoiceData)}`,
       );
       const invoiceResponse = await axios.post(
         this.crmInvoiceUrl,
-        data,
+        invoiceData,
         headers,
       );
 
