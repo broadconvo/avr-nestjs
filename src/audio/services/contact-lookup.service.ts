@@ -6,18 +6,16 @@ import { ContactResponseDto } from '../dto/contact-lookup.dto';
 @Injectable()
 export class ContactLookupService {
   private readonly logger = new Logger(ContactLookupService.name);
-  private readonly tokenUrl: string | undefined;
-  private readonly contactUrlTemplate: string | undefined;
-  private readonly clientId: string | undefined;
-  private readonly clientSecret: string | undefined;
+  private readonly crmTokenUrl: string | undefined;
+  private readonly crmContactUrl: string | undefined;
+  private readonly crmClientId: string | undefined;
+  private readonly crmClientSecret: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
-    this.tokenUrl = this.configService.get<string>('CRM_TOKEN_URL');
-    this.contactUrlTemplate = this.configService.get<string>(
-      'CRM_CONTACT_URL_TEMPLATE',
-    );
-    this.clientId = this.configService.get<string>('CRM_CLIENT_ID');
-    this.clientSecret = this.configService.get<string>('CRM_CLIENT_SECRET');
+    this.crmTokenUrl = this.configService.get<string>('CRM_TOKEN_URL');
+    this.crmContactUrl = this.configService.get<string>('CRM_CONTACT_URL');
+    this.crmClientId = this.configService.get<string>('CRM_CLIENT_ID');
+    this.crmClientSecret = this.configService.get<string>('CRM_CLIENT_SECRET');
   }
 
   async lookupContact(callerId: string): Promise<ContactResponseDto> {
@@ -29,10 +27,10 @@ export class ContactLookupService {
 
     // Check if required configuration is available
     if (
-      !this.tokenUrl ||
-      !this.contactUrlTemplate ||
-      !this.clientId ||
-      !this.clientSecret
+      !this.crmTokenUrl ||
+      !this.crmContactUrl ||
+      !this.crmClientId ||
+      !this.crmClientSecret
     ) {
       this.logger.error('Missing required configuration for contact lookup');
       return this.getEmptyResponse();
@@ -42,11 +40,11 @@ export class ContactLookupService {
       // Step 1: Get Bearer Token
       const startTime = Date.now();
       const tokenResponse = await axios.post(
-        this.tokenUrl,
+        this.crmTokenUrl,
         {
           grant_type: 'client_credentials',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
+          client_id: this.crmClientId,
+          client_secret: this.crmClientSecret,
         },
         {
           httpsAgent: new (await import('https')).Agent({
@@ -62,10 +60,7 @@ export class ContactLookupService {
       }
 
       // Step 2: Call Contact API
-      const contactUrl = this.contactUrlTemplate.replace(
-        /{callerId}/g,
-        callerId,
-      );
+      const contactUrl = this.crmContactUrl.replace(/{callerId}/g, callerId);
       const contactResponse = await axios.get(contactUrl, {
         headers: {
           Authorization: `Bearer ${token}`,
