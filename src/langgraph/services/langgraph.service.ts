@@ -285,13 +285,8 @@ export class LangGraphService implements OnModuleInit {
         };
       }
 
-      // Generate receipt number
-      const receiptNumber = this.invoiceService.generateReceiptNumber(
-        invoice.id,
-      );
-
       this.logger.log(
-        `Created invoice ${invoice.id} with receipt number ${receiptNumber}`,
+        `Created invoice ${invoice.id} with receipt number ${invoice.receiptNumber}`,
       );
 
       return { invoiceId: invoice.id };

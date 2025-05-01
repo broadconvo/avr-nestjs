@@ -178,21 +178,6 @@ export class InvoiceService {
     return updatedInvoice;
   }
 
-  generateReceiptNumber(invoiceId: string): string {
-    const invoice = this.invoices.get(invoiceId);
-    if (!invoice) {
-      throw new Error(`Invoice ${invoiceId} not found`);
-    }
-
-    const receiptNumber = `RMS-${invoiceId}`;
-
-    // Update the invoice with the receipt number
-    invoice.receiptNumber = receiptNumber;
-    this.invoices.set(invoiceId, invoice);
-
-    return receiptNumber;
-  }
-
   async addProductsToInvoice(id: string, invoice: Partial<Invoice>) {
     // Check if required configuration is available
     if (
