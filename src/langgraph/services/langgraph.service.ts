@@ -244,6 +244,7 @@ export class LangGraphService implements OnModuleInit {
       return {
         conversationState: analysisResult.nextState,
         selectedProducts: selectedProducts, // Update state with products found here
+        invoiceId: state.invoiceId,
       };
     };
 
@@ -380,9 +381,13 @@ export class LangGraphService implements OnModuleInit {
       let invoiceInfo = 'No invoice created yet.';
       if (state.context.invoiceId) {
         const invoice = this.invoiceService.getInvoice(state.context.invoiceId);
+        // <YYYY-MM-DD>
         if (invoice) {
           invoiceInfo = `
             Invoice ID: ${invoice.id}
+            Shipping Address:
+            Shipping Date: 
+            Payment Method: Cash Only
             Receipt Number: ${invoice.receiptNumber}
             Customer: ${invoice.customerName}
             Items: ${invoice.items!.map((item) => `${item.quantity}x ${item.product.name} @ ${item.unitPrice}`).join(', ')}
@@ -421,7 +426,7 @@ export class LangGraphService implements OnModuleInit {
         invoiceInfo,
       });
 
-      return { currentResponse: response };
+      return { currentResponse: response, invoiceId: state.context.invoiceId };
     };
 
     /**
@@ -536,9 +541,7 @@ export class LangGraphService implements OnModuleInit {
         ...result.messages,
         `Agent: ${result.currentResponse}`,
       ];
-      console.log('processMessage', {
-        messages: collectedResponses,
-      });
+
       return {
         response: result.currentResponse,
         state: result.conversationState,

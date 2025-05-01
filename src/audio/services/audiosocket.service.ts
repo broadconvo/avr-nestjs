@@ -401,7 +401,7 @@ export class AudioSocketService implements OnModuleInit {
       );
       this.interruptPlayback(callSession); // Stop any ongoing playback
 
-      console.log('sendToLangGraph', result);
+      console.log('sendToLangGraph - result', result);
       // If an invoice was created, store it in the call session
       callSession.metadata.messages = result.messages;
       if (result.invoiceId) {
