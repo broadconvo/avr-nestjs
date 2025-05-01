@@ -552,6 +552,7 @@ export class LangGraphService implements OnModuleInit {
         response: result.currentResponse,
         state: result.conversationState,
         selectedProducts: result.selectedProducts,
+        invoices: result.context.invoices,
         invoiceId: result.context.invoiceId,
         messages: collectedResponses,
       };

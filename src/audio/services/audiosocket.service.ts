@@ -413,9 +413,9 @@ export class AudioSocketService implements OnModuleInit {
       callSession.metadata.messages = result.messages;
       if (result.invoiceId) {
         callSession.metadata.invoiceId = result.invoiceId;
-        this.logger.log(
-          `[${callSessionId}] Invoice created with ID: ${result.invoiceId}`,
-        );
+      }
+      if (result.invoices) {
+        callSession.metadata.invoices = result.invoices;
       }
 
       return result.response;
