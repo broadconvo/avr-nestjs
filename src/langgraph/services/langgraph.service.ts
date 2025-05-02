@@ -360,8 +360,8 @@ export class LangGraphService implements OnModuleInit {
             language: this.rachelLanguage,
             uniqueId: state.context.sessionId, // from pbx - search CDR
             // customer service agent or receptionist
-            rachelId: state.context.rachelId,
-            tenantId: state.context.rachelTenantId,
+            rachelId: '86034123',
+            tenantId: '23126833',
           })
           .then((res) => {
             response = res.data.response;
