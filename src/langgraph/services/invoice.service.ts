@@ -4,6 +4,7 @@ import { Invoice } from '../interfaces/invoice';
 import { v4 as uuidv4 } from 'uuid';
 import { Product } from '../interfaces/product';
 import axios from 'axios';
+import { ShippingInfo } from '../interfaces/shipping-info';
 
 @Injectable()
 export class InvoiceService {
@@ -29,8 +30,13 @@ export class InvoiceService {
     customerId: string,
     customerName: string,
     customerPhone: string,
-    items: (null | { unitPrice: number; product: Product; quantity: any })[],
+    items: (null | {
+      unitPrice: number;
+      product: Product;
+      quantity: any;
+    })[],
     notes?: string,
+    shippingInfo?: ShippingInfo,
   ): Promise<{ invoices: Map<string, Invoice>; invoice: Invoice } | null> {
     // Check if required configuration is available
     if (
@@ -134,6 +140,7 @@ export class InvoiceService {
         createdAt: new Date(),
         status: 'draft',
         notes,
+        shippingInfo,
       };
 
       this.invoices.set(invoice.id, invoice);

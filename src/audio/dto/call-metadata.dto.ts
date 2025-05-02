@@ -1,6 +1,7 @@
-import { IsString } from '@nestjs/class-validator';
+import { IsBoolean, IsString } from '@nestjs/class-validator';
 import { Optional } from '@nestjs/common';
 import { Invoice } from '../../langgraph/interfaces/invoice';
+import { ShippingInfo } from '../../langgraph/interfaces/shipping-info';
 
 export class CallMetadataDto {
   @IsString()
@@ -35,4 +36,11 @@ export class CallMetadataDto {
 
   @Optional()
   rachelTenantId?: string[];
+
+  @Optional()
+  shippingInfo?: ShippingInfo;
+
+  @Optional()
+  @IsBoolean()
+  needsShippingInfo?: boolean;
 }
