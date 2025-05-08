@@ -54,6 +54,34 @@ export class LangGraphService implements OnModuleInit {
   }
 
   private async initializeGraph() {
+    // build prompt introduction
+    let promptLanguage = '';
+    let promptManner = '';
+
+    if (this.rachelLanguage === ' English') {
+      promptManner =
+        ' Default language is American English. ' +
+        'If the user is speaking in Cantonese, then reply in Cantonese, using ' +
+        ' everyday casual spoken Cantonese expressions and vocabulary (粵語口語), ' +
+        ' as used in daily conversations in Hong Kong.' +
+        ' Avoid using formal written Chinese (書面語) or Mandarin expressions.';
+    }
+
+    if (this.rachelLanguage === 'Cantonese') {
+      promptManner =
+        'Use everyday casual spoken Cantonese expressions and vocabulary (粵語口語), ' +
+        ' as used in daily conversations in Hong Kong.' +
+        ' Avoid using formal written Chinese (書面語) or Mandarin expressions.';
+    }
+
+    // add promptManner and promptManner2 to promptLanguage if kbLanguage = manner
+    promptLanguage = `** Please reply in casual colloquial spoken ${this.rachelLanguage} only. ${promptManner}**
+        
+        *Important:*
+        - Do not repeat the user's question in your response.
+        - Do not say any greeting before your response.
+        `;
+
     /**
      * ----------------------------------------------------------------
      * Prompts - Used by the graph to determine the current state of conversation
@@ -112,7 +140,10 @@ export class LangGraphService implements OnModuleInit {
   the provided catalog. Additionally, handle queries about available 
   products by listing all items in the catalog when appropriate. 
   Follow these instructions carefully:
-      
+
+  Language Instructions: 
+  ${promptLanguage}
+        
   ** Product Catalog: **
   ${productCatalog}
 
@@ -179,9 +210,11 @@ export class LangGraphService implements OnModuleInit {
       `You are a professional customer service assistant for a company that sells milk and related products for RMS (Retail Milk Solutions). 
   Your goal is to provide accurate and concise responses tailored to the user's needs. Follow these instructions carefully.
   Make sure that the total prices for the user's selected products are correct.
+  
+  Language Instructions:
+  ${promptLanguage}
 
   Prompt Instructions:
-  
   Generate a response based on the provided conversation state and context.
   Use a friendly and professional tone suitable for customer service.
   Ensure the response aligns with the current state of the conversation and addresses the latest user message.
